@@ -400,6 +400,46 @@ function report(ng,ok){
         await reload();toast(c+"本 強制的に入れました");}},
       {label:"（"+ok+"本は取り込めました）",fn:()=>{}}]));
 }
+/* mp4の箱構造をたどって、先頭8〜16バイトだけ読む */
+async function readBox(blob,off){
+  const buf=await blob.slice(off,off+16).arrayBuffer();
+  if(buf.byteLength<8)return null;
+  const d=new DataView(buf);
+  let size=d.getUint32(0),hs=8;
+  const type=String.fromCharCode(d.getUint8(4),d.getUint8(5),d.getUint8(6),d.getUint8(7));
+  if(size===1){if(buf.byteLength<16)return null;size=Number(d.getBigUint64(8));hs=16;}
+  else if(size===0)size=blob.size-off;
+  return {size,type,hs};
+}
+/* mvhd に書いてある「本当の長さ」を読む。再生不要・一瞬で終わる */
+async function mp4Duration(blob){
+  try{
+    let off=0;
+    while(off<blob.size){
+      const b=await readBox(blob,off);
+      if(!b||b.size<8)return 0;
+      if(b.type==="moov"){
+        let o=off+b.hs;const end=off+b.size;
+        while(o<end){
+          const c=await readBox(blob,o);
+          if(!c||c.size<8)return 0;
+          if(c.type==="mvhd"){
+            const d=new DataView(await blob.slice(o+c.hs,o+c.hs+32).arrayBuffer());
+            const ver=d.getUint8(0);
+            const ts=ver===1?d.getUint32(20):d.getUint32(12);
+            const du=ver===1?Number(d.getBigUint64(24)):d.getUint32(16);
+            return ts>0?du/ts:0;
+          }
+          o+=c.size;
+        }
+        return 0;
+      }
+      off+=b.size;
+    }
+  }catch(_){}
+  return 0;
+}
+
 function seekTo(v,t){return new Promise(r=>{
   let f=false;const h=()=>{if(f)return;f=true;v.removeEventListener("seeked",h);clearTimeout(to);r()};
   const to=setTimeout(h,5000);
@@ -415,7 +455,7 @@ function trueDuration(v){return new Promise(r=>{
     const d=isFinite(v.duration)&&v.duration>0?v.duration:0;
     r(d);};
   const sk=()=>fin(),dc=()=>{};
-  const to=setTimeout(fin,6000);
+  const to=setTimeout(fin,25000);
   v.addEventListener("seeked",sk);v.addEventListener("durationchange",dc);
   try{v.currentTime=1e101}catch(_){fin()}
 });}
@@ -439,7 +479,8 @@ function probe(src){
     v.onloadedmetadata=async()=>{
       try{
         try{await v.play()}catch(_){}          // iOSにデコードさせる
-        const dur=await trueDuration(v);        // 実測
+        let dur=await mp4Duration(src);         // 設計図から読む（速い・正確）
+        if(!dur||!isFinite(dur))dur=await trueDuration(v);  // ダメなら実測に落とす
         const t=dur>0?Math.min(dur*0.1,5):0;
         await seekTo(v,t);
         try{v.pause()}catch(_){}
