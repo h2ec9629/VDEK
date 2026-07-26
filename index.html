@@ -193,6 +193,7 @@ input[type=text]{
         動画を取り込む
         <input type="file" id="pick" accept="video/*" multiple hidden>
       </label>
+      <button class="btn" id="fixAll">調べ直す</button>
     </div>
     <div id="libList"></div>
   </section>
@@ -371,25 +372,88 @@ function report(ng,ok){
         await reload();toast(c+"本 強制的に入れました");}},
       {label:"（"+ok+"本は取り込めました）",fn:()=>{}}]));
 }
-function probe(file){
-  return new Promise((res,rej)=>{
-    const u=URL.createObjectURL(file),v=document.createElement("video");
-    v.muted=true;v.playsInline=true;v.preload="auto";v.src=u;
-    const done=r=>{URL.revokeObjectURL(u);v.removeAttribute("src");res(r)};
-    const to=setTimeout(()=>done({dur:0,thumb:null,err:"timeout"}),15000);
-    v.onloadeddata=()=>{const d=isFinite(v.duration)?v.duration:0;
-      v.currentTime=Math.min(1,d*0.1||0);
-      v.onseeked=()=>{clearTimeout(to);
-        try{const c=document.createElement("canvas"),w=320,h=Math.round(w*(v.videoHeight/v.videoWidth||0.5625));
-          c.width=w;c.height=h;c.getContext("2d").drawImage(v,0,0,w,h);
-          done({dur:d,thumb:c.toDataURL("image/jpeg",.6)});
-        }catch(_){done({dur:d,thumb:null})}};
-      setTimeout(()=>{if(v.readyState>=2&&v.currentTime===0)v.onseeked()},1200);
+function seekTo(v,t){return new Promise(r=>{
+  let f=false;const h=()=>{if(f)return;f=true;v.removeEventListener("seeked",h);clearTimeout(to);r()};
+  const to=setTimeout(h,5000);
+  v.addEventListener("seeked",h);
+  try{v.currentTime=t}catch(_){h()}
+});}
+
+/* mp4の「長さのメモ」が嘘のことがあるので、末尾へ飛ばして実測する */
+function trueDuration(v){return new Promise(r=>{
+  let f=false;
+  const fin=()=>{if(f)return;f=true;
+    v.removeEventListener("seeked",sk);v.removeEventListener("durationchange",dc);clearTimeout(to);
+    const d=isFinite(v.duration)&&v.duration>0?v.duration:0;
+    r(d);};
+  const sk=()=>fin(),dc=()=>{};
+  const to=setTimeout(fin,6000);
+  v.addEventListener("seeked",sk);v.addEventListener("durationchange",dc);
+  try{v.currentTime=1e101}catch(_){fin()}
+});}
+
+function probe(src){
+  return new Promise(res=>{
+    const u=URL.createObjectURL(src),v=document.createElement("video");
+    v.muted=true;v.defaultMuted=true;v.playsInline=true;
+    v.setAttribute("playsinline","");v.setAttribute("webkit-playsinline","");
+    v.preload="auto";
+    v.style.cssText="position:fixed;left:-9999px;top:0;width:4px;height:4px;opacity:0.01;pointer-events:none";
+    document.body.appendChild(v);
+    let f=false;
+    const fin=r=>{if(f)return;f=true;clearTimeout(to);
+      try{v.pause()}catch(_){}
+      URL.revokeObjectURL(u);v.removeAttribute("src");
+      try{v.load()}catch(_){}
+      v.remove();res(r);};
+    const to=setTimeout(()=>fin({dur:0,thumb:null,err:"timeout"}),45000);
+    v.onerror=()=>fin({dur:0,thumb:null,err:(v.error&&v.error.code===4)?"codec":"read"});
+    v.onloadedmetadata=async()=>{
+      try{
+        try{await v.play()}catch(_){}          // iOSにデコードさせる
+        const dur=await trueDuration(v);        // 実測
+        const t=dur>0?Math.min(dur*0.1,5):0;
+        await seekTo(v,t);
+        try{v.pause()}catch(_){}
+        let thumb=null;
+        try{
+          const w=320,h=Math.round(w*((v.videoHeight/v.videoWidth)||0.5625))||180;
+          const c=document.createElement("canvas");c.width=w;c.height=h;
+          c.getContext("2d").drawImage(v,0,0,w,h);
+          const d=c.toDataURL("image/jpeg",.6);
+          if(d&&d.length>2000)thumb=d;          // 真っ黒は捨てる
+        }catch(_){}
+        fin({dur,thumb});
+      }catch(_){fin({dur:0,thumb:null,err:"read"})}
     };
-    v.onerror=()=>{clearTimeout(to);
-      done({dur:0,thumb:null,err:(v.error&&v.error.code===4)?"codec":"read"})};
+    v.src=u;
   });
 }
+
+/* 取り込み済みの動画を調べ直す */
+async function repair(rec){
+  const b=rec.data?new Blob([rec.data],{type:rec.type||"video/mp4"}):rec.blob;
+  if(!b||!b.size)return toast("データがありません");
+  toast("調べ直してます… "+rec.name);
+  const p=await probe(b);
+  if(p.dur)rec.dur=p.dur;
+  if(p.thumb)rec.thumb=p.thumb;
+  await put("videos",rec);await reload();
+  toast(p.dur?"長さ "+fmt(p.dur)+" に修正":"読み取れませんでした");
+}
+$("#fixAll").onclick=async()=>{
+  if(!VIDEOS.length)return;
+  for(const v of VIDEOS.slice()){
+    const b=v.data?new Blob([v.data],{type:v.type||"video/mp4"}):v.blob;
+    if(!b||!b.size)continue;
+    toast("調べ直し中… "+v.name);
+    const p=await probe(b);
+    if(p.dur)v.dur=p.dur;
+    if(p.thumb)v.thumb=p.thumb;
+    await put("videos",v);
+  }
+  await reload();toast("全部やり直しました");
+};
 
 /* ============ render ============ */
 function cardEl(o){
@@ -412,6 +476,7 @@ function renderLib(){
         {label:"再生する",fn:()=>playQueue([{kind:"video",videoId:v.id,title:v.name,start:0,end:null}],0)},
         {label:"切り出しエディタを開く",fn:()=>{playQueue([{kind:"video",videoId:v.id,title:v.name,start:0,end:null}],0);openEditor(v.id);}},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"video",refId:v.id})},
+        {label:"長さとサムネを調べ直す",fn:()=>repair(v)},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",v.name,async n=>{v.name=n;await put("videos",v);await reload();})},
         {label:"削除する（クリップも消えます）",danger:true,fn:async()=>{
           await del("videos",v.id);
