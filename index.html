@@ -335,37 +335,45 @@ $("#pick").onchange=async e=>{
   const files=[...e.target.files];e.target.value="";
   if(!files.length)return;
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
-  const ng=[];let ok=0;
+  const ng=[];const added=[];
+  // 第1段階：とにかく保存する（調査はしない）
   for(const f of files){
-    toast("取り込み中… "+f.name);
-    let p={dur:0,thumb:null,err:"read"};
-    try{p=await probe(f);}catch(_){}
-    if(p.err==="codec"){ng.push([f.name,"再生できない形式と判定されました",f]);continue;}
-    if(p.err==="timeout"&&f.size>500*1048576){ng.push([f.name,"大きすぎて読み込み切れません（"+mb(f.size)+"）",f]);continue;}
-    ok+=await store(f,p)?1:0;
+    toast("保存中… "+f.name.slice(0,18));
+    const id=await store(f);
+    if(id)added.push(id);else ng.push([f.name,lastErr||"保存に失敗",f]);
   }
   await reload();
-  if(!ng.length)return toast(ok+"本 取り込みました");
-  report(ng,ok);
+  if(!added.length){report(ng,0);return;}
+  // 第2段階：保存が済んでから長さとサムネを調べる（失敗しても動画は残る）
+  toast(added.length+"本 保存しました。長さを調べます…");
+  for(const id of added){
+    const rec=await one("videos",id);
+    if(rec){try{await repair(rec,true)}catch(_){}}
+  }
+  await reload();
+  if(ng.length)report(ng,added.length);else toast(added.length+"本 取り込みました");
 };
 const CHUNK=8*1048576;
-async function store(f,p){
+let lastErr="";
+async function store(f){
   const id=uid(),type=f.type||"video/mp4";
   const n=Math.max(1,Math.ceil(f.size/CHUNK));
+  lastErr="";
   try{
     for(let i=0;i<n;i++){
       const buf=await f.slice(i*CHUNK,Math.min(f.size,(i+1)*CHUNK)).arrayBuffer();
       await put("chunks",{id:id+":"+i,data:buf});
-      if(n>4&&i%2===0)toast(f.name.slice(0,18)+" 保存中 "+Math.round((i+1)/n*100)+"%");
+      if(n>4&&i%3===0)toast(f.name.slice(0,16)+" 保存中 "+Math.round((i+1)/n*100)+"%");
     }
     await put("videos",{id,name:f.name.replace(/\.[^.]+$/,""),
-      type,size:f.size,chunks:n,dur:p.dur,thumb:p.thumb,addedAt:Date.now()});
-    return true;
+      type,size:f.size,chunks:n,dur:0,thumb:null,addedAt:Date.now()});
+    return id;
   }catch(err){
     for(let i=0;i<n;i++){try{await del("chunks",id+":"+i)}catch(_){}}
-    const nm=err&&err.name||"";
-    toast(nm==="QuotaExceededError"?"保存領域がいっぱいです":"保存に失敗 "+nm);
-    return false;
+    const nm=(err&&err.name)||String(err);
+    lastErr=nm==="QuotaExceededError"?"保存領域がいっぱいです":"保存に失敗 "+nm;
+    toast(lastErr);
+    return null;
   }
 }
 /* 分割保存されたものを1本に組み直す */
@@ -396,7 +404,7 @@ function report(ng,ok){
         let c=0;
         for(const [,,f] of ng){if(!f)continue;
           toast("強制取り込み中… "+f.name);
-          if(await store(f,{dur:0,thumb:null}))c++;}
+          if(await store(f))c++;}
         await reload();toast(c+"本 強制的に入れました");}},
       {label:"（"+ok+"本は取り込めました）",fn:()=>{}}]));
 }
@@ -499,16 +507,38 @@ function probe(src){
   });
 }
 
-/* 取り込み済みの動画を調べ直す */
-async function repair(rec){
+/* 保存されたデータが本当に揃っているか数える */
+async function diagnose(rec){
+  toast("調べてます…");
+  let found=0,bytes=0;
+  if(rec.chunks){
+    for(let i=0;i<rec.chunks;i++){
+      const c=await one("chunks",rec.id+":"+i);
+      if(c&&c.data){found++;bytes+=c.data.byteLength;}
+    }
+  }else if(rec.data){found=1;bytes=rec.data.byteLength;}
   const b=await blobOf(rec);
-  if(!b||!b.size)return toast("データがありません");
-  toast("調べ直してます… "+rec.name);
+  const hdr=b?await mp4Duration(b):0;
+  const okAll=bytes===rec.size;
+  sheet("診断： "+rec.name,[
+    "元ファイルのサイズ\n"+rec.size.toLocaleString()+" B（"+mb(rec.size)+"）",
+    "実際に入ってるデータ\n"+bytes.toLocaleString()+" B（"+mb(bytes)+"）",
+    "かけらの数\n"+found+" / "+(rec.chunks||1),
+    "組み直した結果\n"+(b?b.size.toLocaleString()+" B":"組み直し失敗"),
+    "設計図に書いてある長さ\n"+(hdr?fmt(hdr):"読み取れず"),
+    "いま表示してる長さ\n"+fmt(rec.dur||0),
+    okAll?"✅ データは欠けてません":"⚠ データが "+mb(rec.size-bytes)+" 足りません"
+  ].map(t=>({label:t,fn:()=>{}})));
+}
+async function repair(rec,quiet){
+  const b=await blobOf(rec);
+  if(!b||!b.size){if(!quiet)toast("データがありません");return;}
+  if(!quiet)toast("調べ直してます… "+rec.name);
   const p=await probe(b);
   if(p.dur)rec.dur=p.dur;
   if(p.thumb)rec.thumb=p.thumb;
-  await put("videos",rec);await reload();
-  toast(p.dur?"長さ "+fmt(p.dur)+" に修正":"読み取れませんでした");
+  await put("videos",rec);
+  if(!quiet){await reload();toast(p.dur?"長さ "+fmt(p.dur)+" に修正":"読み取れませんでした")}
 }
 $("#fixAll").onclick=async()=>{
   if(!VIDEOS.length)return;
@@ -546,6 +576,7 @@ function renderLib(){
         {label:"切り出しエディタを開く",fn:()=>{playQueue([{kind:"video",videoId:v.id,title:v.name,start:0,end:null}],0);openEditor(v.id);}},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"video",refId:v.id})},
         {label:"長さとサムネを調べ直す",fn:()=>repair(v)},
+        {label:"🔍 診断する（データが揃ってるか）",fn:()=>diagnose(v)},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",v.name,async n=>{v.name=n;await put("videos",v);await reload();})},
         {label:"削除する（クリップも消えます）",danger:true,fn:async()=>{
           await dropVideo(v);
