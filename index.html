@@ -423,11 +423,16 @@ $("#brand").onclick=()=>{
     }},
   ]);
 };
-$$("nav button").forEach(b=>b.onclick=()=>{
-  $$("nav button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
-  $$(".pane").forEach(p=>p.classList.remove("on"));$("#pane-"+b.dataset.p).classList.add("on");
-});
-const go=p=>$$("nav button").find(b=>b.dataset.p===p).click();
+/* タブ切り替え。ボタンを内部で押すのではなく直接切り替える */
+function go(p){
+  const btn=$$("nav button").find(b=>b.dataset.p===p);
+  $$("nav button").forEach(x=>x.classList.toggle("on",x===btn));
+  $$(".pane").forEach(s=>s.classList.remove("on"));
+  const pane=$("#pane-"+p);
+  if(pane){pane.classList.add("on");
+    const m=$("main");if(m)m.scrollTop=0;}
+}
+$$("nav button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.p)));
 
 /* ============ import ============ */
 $("#pick").onchange=async e=>{
@@ -830,13 +835,24 @@ function mediaPos(){
     position:Math.max(0,Math.min(dur,vid.currentTime-s))});}catch(_){}
 }
 function playQueue(q,i){queue=q;qi=i;go("now");load(true);}
+let skipGuard=0;
 async function load(auto){
   const it=queue[qi];if(!it)return;
   if(curVid!==it.videoId){
-    const v=await one("videos",it.videoId);if(!v)return next();
+    const v=await one("videos",it.videoId);
+    if(!v){
+      if(++skipGuard>=queue.length){skipGuard=0;
+        return toast("このリストの動画が見つかりません");}
+      return next();
+    }
     if(curURL)URL.revokeObjectURL(curURL);
     const b=await blobOf(v);
-    if(!b||!b.size){toast("データが失われています。取り込み直してください");return;}
+    if(!b||!b.size){
+      if(++skipGuard>=queue.length){skipGuard=0;
+        return toast("動画データが壊れています。取り込み直してください");}
+      return next();
+    }
+    skipGuard=0;
     curURL=URL.createObjectURL(b);curVid=it.videoId;vid.src=curURL;vid.load();
   }
   $("#npTitle").textContent=it.title;$("#miniTitle").textContent=it.title;
