@@ -527,23 +527,33 @@ async function store(f){
     return null;
   }
 }
-/* 分割保存されたものを1本に組み直す */
 /* 分割保存されたものを1本に組み直す
    かけらを1個ずつ継ぎ足すと、そのたびに全体を作り直すことになって
-   本数の二乗ぶんの手間がかかる。まとめて一度に渡すこと。 */
+   本数の二乗ぶんの手間がかかる（重すぎる）。
+   かといって、全部のかけらを一気に配列へ貯めてから１回で渡すと、
+   1〜3GBクラスの動画では「かけら全部ぶんの生データ」が一瞬メモリに
+   乗ってしまい、iPhoneのSafariごと落ちる（強制終了→ホーム画面）原因になる。
+   → 少数（16個＝約128MB）ずつまとめて継ぎ足す方式にして、
+     重さとメモリ使用量の両方を抑える。 */
 let blobCache={id:null,blob:null};
+const BLOB_BATCH=16; // 8MBのかけら16個＝約128MBずつ組み直す
 async function blobOf(rec){
   if(!rec)return null;
   if(blobCache.id===rec.id&&blobCache.blob)return blobCache.blob;
   let b=null;
   if(rec.chunks){
-    const parts=[];
+    let acc=null,batch=[];
     for(let i=0;i<rec.chunks;i++){
       const c=await one("chunks",rec.id+":"+i);
       if(!c)return null;
-      parts.push(c.data);
+      batch.push(c.data);
+      if(batch.length>=BLOB_BATCH||i===rec.chunks-1){
+        acc=acc?new Blob([acc,...batch],{type:rec.type||"video/mp4"})
+             :new Blob(batch,{type:rec.type||"video/mp4"});
+        batch=[]; // ここで貯めてた生データを手放す（メモリを返す）
+      }
     }
-    b=new Blob(parts,{type:rec.type||"video/mp4"});   // 一度だけ作る
+    b=acc;
   }
   else if(rec.data)b=new Blob([rec.data],{type:rec.type||"video/mp4"});
   else b=rec.blob||null;
