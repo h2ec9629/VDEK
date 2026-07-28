@@ -250,9 +250,11 @@ input[type=text]{
             <div class="seekknob" id="seekKnob"></div></div>
         </div>
         <div class="tc"><b id="sNow">0:00</b><span id="sLeft">-0:00</span></div>
-        <div class="row" style="justify-content:center;gap:10px;margin-top:2px">
+        <div class="row" style="justify-content:center;gap:8px;margin-top:2px">
           <button class="btn sm" id="b15b">15秒 戻す</button>
+          <button class="btn sm" id="b5b">5秒 戻す</button>
           <button class="btn sm" id="bSpeed">速度 1.0x</button>
+          <button class="btn sm" id="b5f">5秒 送る</button>
           <button class="btn sm" id="b15f">15秒 送る</button>
         </div>
       </div>
@@ -274,6 +276,7 @@ input[type=text]{
           <span id="waveNote" style="font-size:11px">波形はまだ出してません</span>
         </div>
         <button class="btn sm" id="waveBtn" style="width:100%;margin-top:6px">音の波形を出す（無音の位置を探す）</button>
+        <button class="btn sm" id="autoBtn" style="width:100%;margin-top:6px;display:none">無音で自動的に曲を切り分ける</button>
         <div class="tc">
           <span>IN <b id="tIn">0:00.0</b></span>
           <span id="tLen">0.0秒</span>
@@ -976,7 +979,7 @@ function renderQueue(){
 }
 
 /* ===== 音の波形（無音の位置を見つけるため） ===== */
-let waveFor=null,waveData=null,waveBusy=false,waveAbort=false;
+let waveFor=null,waveData=null,fineData=null,waveBusy=false,waveAbort=false;
 const WAVE_N=900;
 
 /* 走査は重いので、別の作業場（Worker）に投げてアプリ本体を止めない */
@@ -985,7 +988,7 @@ function getWaveWorker(){
   if(waveWorker)return waveWorker;
   const src=`
     self.onmessage=e=>{
-      const {ch,N}=e.data;
+      const {ch,N,rate}=e.data;
       const peaks=new Float32Array(N);
       const step=Math.max(1,Math.floor(ch.length/N));
       let max=0;
@@ -996,7 +999,21 @@ function getWaveWorker(){
         if((i&63)===0)self.postMessage({progress:(i+1)/N});
       }
       if(max>0)for(let i=0;i<N;i++)peaks[i]/=max;
-      self.postMessage({done:true,peaks,max},[peaks.buffer]);
+
+      // 0.1秒ごとの音量（無音の区切りを探すため）
+      const win=Math.max(1,Math.round(rate*0.1));
+      const M=Math.max(1,Math.floor(ch.length/win));
+      const fine=new Float32Array(M);
+      let fmax=0;
+      for(let i=0;i<M;i++){
+        let sum=0;const a0=i*win,a1=Math.min(ch.length,a0+win);
+        for(let j=a0;j<a1;j++)sum+=ch[j]*ch[j];
+        const rms=Math.sqrt(sum/Math.max(1,a1-a0));
+        fine[i]=rms;if(rms>fmax)fmax=rms;
+      }
+      if(fmax>0)for(let i=0;i<M;i++)fine[i]/=fmax;
+
+      self.postMessage({done:true,peaks,fine,max},[peaks.buffer,fine.buffer]);
     };`;
   try{
     waveWorker=new Worker(URL.createObjectURL(new Blob([src],{type:"text/javascript"})));
@@ -1035,24 +1052,26 @@ async function buildWave(videoId,dur){
       buf=await ctx.decodeAudioData(bytes);
       try{ctx.close()}catch(_){}
     }
+    const rate=buf.sampleRate||8000;
     const ch=Float32Array.from(buf.getChannelData(0));
     buf=null;
 
     const w=getWaveWorker();
     if(w){
-      const peaks=await new Promise((res,rej)=>{
+      const r=await new Promise((res,rej)=>{
         const to=setTimeout(()=>rej(new Error("timeout")),180000);
         w.onmessage=ev=>{
           if(ev.data.progress!==undefined){
             note.textContent="音を解析中… "+Math.round(ev.data.progress*100)+"%";
             return;
           }
-          clearTimeout(to);res(ev.data.max>0?ev.data.peaks:null);
+          clearTimeout(to);res(ev.data);
         };
         w.onerror=()=>{clearTimeout(to);rej(new Error("worker"))};
-        w.postMessage({ch,N:WAVE_N},[ch.buffer]);
+        w.postMessage({ch,N:WAVE_N,rate},[ch.buffer]);
       });
-      waveData=peaks;
+      waveData=r.max>0?r.peaks:null;
+      fineData=r.max>0?r.fine:null;
     }else{
       // Workerが使えない環境向けの保険（少しずつ区切って走査する）
       const peaks=new Float32Array(WAVE_N);
@@ -1070,6 +1089,7 @@ async function buildWave(videoId,dur){
       if(max>0){for(let i=0;i<WAVE_N;i++)peaks[i]/=max;waveData=peaks;}
     }
 
+    if($("#autoBtn"))$("#autoBtn").style.display=waveData?"block":"none";
     note.textContent=waveData?"濃い谷が無音です":
       "音を読み取れませんでした（音声が無いか、展開できない形式です）";
   }catch(e){
@@ -1141,10 +1161,11 @@ function openEditor(videoId,inT,outT,clipId){
     drawEd(true);
     if(waveFor===videoId&&waveData)$("#waveNote").textContent="濃い谷が無音です";
     else{
-      waveData=null;waveFor=null;
+      waveData=null;fineData=null;waveFor=null;
       $("#waveNote").textContent="波形はまだ出してません";
     }
     $("#waveBtn").style.display=(waveFor===videoId&&waveData)?"none":"block";
+    $("#autoBtn").style.display=(waveFor===videoId&&waveData)?"block":"none";
   };
   if(vid.readyState>=1)set();else vid.addEventListener("loadedmetadata",set,{once:true});
 }
@@ -1211,10 +1232,15 @@ function drawSeek(){
   $("#sNow").textContent=fmt(cur);
   $("#sLeft").textContent="-"+fmt(len-cur);
 }
-$("#b15b").onclick=()=>{const it=queue[qi];if(!it)return;
-  vid.currentTime=Math.max(it.start||0,vid.currentTime-15);};
-$("#b15f").onclick=()=>{const it=queue[qi];if(!it)return;
-  const en=it.end||vid.duration||0;vid.currentTime=Math.min(en-0.1,vid.currentTime+15);};
+function nudge(sec){
+  const it=queue[qi];if(!it)return;
+  const s=it.start||0,en=it.end||vid.duration||0;
+  vid.currentTime=Math.max(s,Math.min(en-0.1,vid.currentTime+sec));
+}
+$("#b15b").onclick=()=>nudge(-15);
+$("#b5b").onclick =()=>nudge(-5);
+$("#b5f").onclick =()=>nudge(5);
+$("#b15f").onclick=()=>nudge(15);
 const SPEEDS=[1,1.25,1.5,2,0.5,0.75];let si=0;
 $("#bSpeed").onclick=()=>{si=(si+1)%SPEEDS.length;vid.playbackRate=SPEEDS[si];
   $("#bSpeed").textContent="速度 "+SPEEDS[si].toFixed(2).replace(/0$/,"").replace(/\.$/,"")+"x";};
@@ -1230,7 +1256,86 @@ $("#waveBtn").onclick=async()=>{
   if(!waveData)$("#waveBtn").style.display="block";
 };
 
-/* 再生モード / 切り出しモードの切り替え */
+/* ===== 無音を手がかりに自動でトラックを切り分ける ===== */
+const AUTO={quiet:0.02,gap:0.7,minLen:20};  // 音量のしきい値 / 無音の最短 / 1曲の最短（秒）
+
+function detectTracks(){
+  if(!fineData||!ed)return [];
+  const M=fineData.length,dur=ed.dur;
+  const perSec=M/dur;
+  const minGap=Math.max(1,Math.round(AUTO.gap*perSec));
+
+  // 無音が続く区間を拾う
+  const gaps=[];let run=0;
+  for(let i=0;i<M;i++){
+    if(fineData[i]<AUTO.quiet)run++;
+    else{ if(run>=minGap)gaps.push([i-run,i]); run=0; }
+  }
+  if(run>=minGap)gaps.push([M-run,M]);
+
+  // 無音の真ん中を切れ目にする
+  const cuts=[0];
+  gaps.forEach(([a,b])=>{
+    if(a<=0||b>=M)return;                 // 曲の頭と尻の無音は切れ目にしない
+    cuts.push(Math.round((a+b)/2));
+  });
+  cuts.push(M);
+
+  const out=[];
+  for(let i=0;i<cuts.length-1;i++){
+    const s=cuts[i]/perSec,e=cuts[i+1]/perSec;
+    if(e-s<AUTO.minLen)continue;          // 短すぎるものは曲とみなさない
+    out.push([s,e]);
+  }
+  return out;
+}
+
+function autoSplit(){
+  if(!fineData)return toast("先に「音の波形を出す」を押してください");
+  const tr=detectTracks();
+  if(!tr.length)return sheet("自動切り分け",[
+    {label:"曲の区切りが見つかりませんでした\n無音がはっきりしない録音かもしれません",fn:()=>{}},
+    {label:"感度を調整する",fn:()=>autoSettings()},
+  ]);
+  const v=VIDEOS.find(v=>v.id===ed.videoId);
+  const base=v?v.name:"track";
+  sheet(tr.length+"曲に切り分けます",[
+    {label:"見つかった区切り\n"+tr.slice(0,6).map((t,i)=>
+      (i+1)+". "+fmt(t[0])+" → "+fmt(t[1])+"（"+Math.round(t[1]-t[0])+"秒）").join("\n")
+      +(tr.length>6?"\n… ほか"+(tr.length-6)+"曲":""),fn:()=>{}},
+    {label:"この区切りでクリップを作る",fn:async()=>{
+      let n=0;
+      for(let i=0;i<tr.length;i++){
+        const c={id:uid(),videoId:ed.videoId,
+          name:base+" #"+String(i+1).padStart(2,"0"),
+          start:tr[i][0],end:tr[i][1],thumb:null,createdAt:Date.now()+i};
+        await put("clips",c);n++;
+        toast("作成中… "+n+"/"+tr.length);
+      }
+      await reload();toast(n+"曲のクリップを作りました");go("clip");
+    }},
+    {label:"感度を調整してやり直す",fn:()=>autoSettings()},
+  ]);
+}
+
+function autoSettings(){
+  sheet("自動切り分けの感度",[
+    {label:"無音の判定を厳しく（大きめの音も無音扱い）\nいま: "+AUTO.quiet,
+     fn:()=>{AUTO.quiet=Math.min(0.12,AUTO.quiet*1.8);autoSplit()}},
+    {label:"無音の判定をゆるく（本当に静かな所だけ）\nいま: "+AUTO.quiet,
+     fn:()=>{AUTO.quiet=Math.max(0.004,AUTO.quiet/1.8);autoSplit()}},
+    {label:"曲間の無音を短めに見る\nいま: "+AUTO.gap+"秒",
+     fn:()=>{AUTO.gap=Math.max(0.2,AUTO.gap-0.3);autoSplit()}},
+    {label:"曲間の無音を長めに見る\nいま: "+AUTO.gap+"秒",
+     fn:()=>{AUTO.gap=Math.min(3,AUTO.gap+0.3);autoSplit()}},
+    {label:"1曲の最短を短く\nいま: "+AUTO.minLen+"秒",
+     fn:()=>{AUTO.minLen=Math.max(3,AUTO.minLen-10);autoSplit()}},
+    {label:"1曲の最短を長く\nいま: "+AUTO.minLen+"秒",
+     fn:()=>{AUTO.minLen=Math.min(300,AUTO.minLen+10);autoSplit()}},
+    {label:"いまの設定で切り分ける",fn:()=>autoSplit()},
+  ]);
+}
+$("#autoBtn").onclick=()=>autoSplit();
 $("#toggleEdit").onclick=()=>{
   const w=$("#editWrap"),onNow=w.style.display!=="none";
   if(onNow){w.style.display="none";$("#toggleEdit").textContent="切り出しモードにする";
