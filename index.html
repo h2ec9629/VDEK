@@ -116,12 +116,12 @@ body.editing #stage{height:0;overflow:hidden}
 
 /* ---- signature: the splice bar ---- */
 .splice{position:relative;height:96px;margin:14px 0 4px;touch-action:none}
-#wave{position:absolute;left:0;top:36px;display:block;pointer-events:none}
 .splice .track{
   position:absolute;left:0;right:0;top:36px;height:54px;border-radius:4px;
-  background:var(--ink2);border:1px solid var(--line);
+  background:var(--ink2);border:1px solid var(--line);z-index:0;
 }
-.splice .sel{position:absolute;top:36px;height:54px;border-radius:4px;
+#wave{position:absolute;left:0;top:36px;display:block;pointer-events:none;z-index:2}
+.splice .sel{position:absolute;top:36px;height:54px;border-radius:4px;z-index:1;
   background:rgba(232,163,61,.10);border-left:2px solid var(--cut);border-right:2px solid var(--amber)}
 .splice .play{position:absolute;top:32px;width:2px;height:62px;background:var(--fg);margin-left:-1px;z-index:3}
 .flag{
@@ -822,38 +822,93 @@ function renderQueue(){
 }
 
 /* ===== 音の波形（無音の位置を見つけるため） ===== */
-let waveFor=null,waveData=null,waveBusy=false;
+let waveFor=null,waveData=null,waveBusy=false,waveAbort=false;
+const WAVE_N=900;
 
-async function buildWave(videoId){
-  if(waveBusy)return;
-  waveBusy=true;waveFor=videoId;waveData=null;
-  $("#waveNote").textContent="音を解析中…";
-  drawWave();
+/* 音声を丸ごと展開すると1時間モノでメモリが尽きるので、
+   時間を区切って少しずつ展開し、済んだ分から捨てながら進める */
+async function buildWave(videoId,dur){
+  if(waveBusy){waveAbort=true;return;}
+  waveBusy=true;waveAbort=false;waveFor=videoId;waveData=null;
+  const note=$("#waveNote");
+  const AC=window.AudioContext||window.webkitAudioContext;
   try{
+    if(!AC)throw new Error("no-audio");
     const rec=await one("videos",videoId);
     const b=await blobOf(rec);
-    if(!b)throw 0;
-    const AC=window.AudioContext||window.webkitAudioContext;
-    if(!AC)throw 0;
-    const ctx=new AC();
-    const buf=await ctx.decodeAudioData(await b.arrayBuffer());
-    const ch=buf.getChannelData(0);
-    const N=600,step=Math.max(1,Math.floor(ch.length/N));
-    const peaks=new Float32Array(N);
-    let max=0;
-    for(let i=0;i<N;i++){
-      let p=0;const s=i*step,e=Math.min(ch.length,s+step);
-      // 間引いて走査（全部見ると重いので）
-      for(let j=s;j<e;j+=7){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
-      peaks[i]=p;if(p>max)max=p;
+    if(!b)throw new Error("no-data");
+    const total=dur||ed&&ed.dur||0;
+    if(!total)throw new Error("no-dur");
+
+    const peaks=new Float32Array(WAVE_N);
+    waveData=peaks;                       // 途中経過も描けるよう先に差しておく
+    const SEG=total>1800?90:total>600?120:total;  // 長尺ほど細かく刻む
+    const segs=Math.max(1,Math.ceil(total/SEG));
+    let max=0,got=0;
+
+    for(let s=0;s<segs;s++){
+      if(waveAbort)break;
+      const t0=s*SEG,t1=Math.min(total,t0+SEG);
+      // ファイルの該当部分だけを切り出して展開する
+      const from=Math.floor(b.size*(t0/total)),to=Math.ceil(b.size*(t1/total));
+      let buf=null;
+      const ctx=new AC();
+      try{
+        buf=await ctx.decodeAudioData(await b.slice(from,to).arrayBuffer());
+      }catch(_){ }
+      if(buf){
+        got++;
+        const ch=buf.getChannelData(0);
+        const i0=Math.floor(WAVE_N*(t0/total)),i1=Math.max(i0+1,Math.floor(WAVE_N*(t1/total)));
+        const span=Math.max(1,Math.floor(ch.length/(i1-i0)));
+        for(let i=i0;i<i1;i++){
+          let p=0;const a0=(i-i0)*span,a1=Math.min(ch.length,a0+span);
+          for(let j=a0;j<a1;j+=11){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
+          peaks[i]=p;if(p>max)max=p;
+        }
+      }
+      try{ctx.close()}catch(_){}
+      buf=null;
+      note.textContent="音を解析中… "+Math.round((s+1)/segs*100)+"%";
+      // 正規化して途中経過を描く
+      if(max>0){const tmp=new Float32Array(WAVE_N);
+        for(let i=0;i<WAVE_N;i++)tmp[i]=peaks[i]/max;waveData=tmp;}
+      drawWave();
+      await new Promise(r=>setTimeout(r,0));   // 画面を固まらせない
     }
-    if(max>0)for(let i=0;i<N;i++)peaks[i]/=max;
-    waveData=peaks;
-    try{ctx.close()}catch(_){}
-    $("#waveNote").textContent="濃い谷が無音です";
-  }catch(_){
+
+    // 小分けが1つも通らなかった場合は、丸ごと展開に切り替える
+    if(!got&&!waveAbort){
+      note.textContent="小分けが効きません。まとめて解析します…";
+      await new Promise(r=>setTimeout(r,0));
+      const ctx=new AC();
+      try{
+        const buf=await ctx.decodeAudioData(await b.arrayBuffer());
+        const ch=buf.getChannelData(0);
+        const step=Math.max(1,Math.floor(ch.length/WAVE_N));
+        max=0;
+        for(let i=0;i<WAVE_N;i++){
+          let p=0;const a0=i*step,a1=Math.min(ch.length,a0+step);
+          for(let j=a0;j<a1;j+=11){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
+          peaks[i]=p;if(p>max)max=p;
+        }
+        if(max>0){const tmp=new Float32Array(WAVE_N);
+          for(let i=0;i<WAVE_N;i++)tmp[i]=peaks[i]/max;waveData=tmp;}
+      }catch(_){ }
+      try{ctx.close()}catch(_){}
+    }
+    const any=waveData&&waveData.some(v=>v>0);
+    note.textContent=any?"濃い谷が無音です":
+      "音を読み取れませんでした（音声が無いか、iPhoneが展開できない音声形式です）";
+    if(!any)waveData=null;
+  }catch(e){
     waveData=null;
-    $("#waveNote").textContent="この動画は波形を出せません（音が無いか、形式が特殊です）";
+    const m=(e&&e.message)||String(e);
+    note.textContent=
+      m==="no-audio"?"このブラウザは音の解析に対応してません":
+      m==="no-data" ?"元動画のデータが見つかりません":
+      m==="no-dur"  ?"動画の長さが分からないので解析できません（先に『調べ直す』を）":
+      "波形を出せません（"+m+"）";
   }
   waveBusy=false;drawWave();
 }
@@ -905,7 +960,7 @@ function openEditor(videoId,inT,outT,clipId){
     $("#toggleEdit").textContent="再生モードに戻る";$("#toggleEdit").classList.add("pri");
     document.body.classList.add("editing");
     drawEd();
-    if(waveFor!==videoId||!waveData)buildWave(videoId);
+    if(waveFor!==videoId||!waveData)buildWave(videoId,ed.dur);
     else $("#waveNote").textContent="濃い谷が無音です";
   };
   if(vid.readyState>=1)set();else vid.addEventListener("loadedmetadata",set,{once:true});
