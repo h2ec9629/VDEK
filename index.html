@@ -372,7 +372,50 @@ function sheetInput(title,ph,val,fn){
 function closeSheet(){$("#sheet").classList.remove("on");$("#veil").classList.remove("on");}
 $("#veil").onclick=closeSheet;
 
-/* 車で使えているか確かめる */
+/* 動画を取り込み直すと中身のIDが変わり、
+   クリップや再生リストが古いIDを指したまま迷子になる。
+   名前を手がかりに、いまある動画へ貼り替える。
+   切り出した位置（開始/終了）はそのまま残るので、作業のやり直しは不要。 */
+async function relink(){
+  const norm=s=>String(s||"").toLowerCase().replace(/[\s_\-.\u3000]/g,"");
+  const byId=new Set(VIDEOS.map(v=>v.id));
+  const byName=new Map();
+  VIDEOS.forEach(v=>{const k=norm(v.name);if(!byName.has(k))byName.set(k,v.id)});
+
+  // 迷子のクリップを、名前が一致する動画へ貼り替える
+  let fixC=0,lostC=0;
+  for(const c of CLIPS){
+    if(byId.has(c.videoId))continue;
+    // クリップ名は「元動画名 切り出し」の形が多いので、そこから元動画名を拾う
+    const base=norm(String(c.name).replace(/\s*切り出し\s*$/,""));
+    let id=byName.get(base);
+    if(!id){
+      for(const [k,v] of byName){ if(base&&(k.includes(base)||base.includes(k))){id=v;break;} }
+    }
+    if(id){c.videoId=id;await put("clips",c);fixC++;}
+    else lostC++;
+  }
+
+  // 再生リストの中で、消えたクリップ/動画を指している項目を数える
+  let fixP=0,lostP=0;
+  const clipIds=new Set(CLIPS.map(c=>c.id));
+  for(const p of PLAYLISTS){
+    let changed=false;
+    p.items=p.items.filter(it=>{
+      const alive=it.kind==="video"?byId.has(it.refId):clipIds.has(it.refId);
+      if(!alive){lostP++;changed=true;return false;}
+      return true;
+    });
+    if(changed){await put("playlists",p);fixP++;}
+  }
+  await reload();
+  sheet("修復しました",[
+    "貼り替えたクリップ\n"+fixC+" 件（切り出し位置はそのまま）",
+    "貼り替えられなかったクリップ\n"+lostC+" 件"+(lostC?"（元動画が見つかりません）":""),
+    "手直しした再生リスト\n"+fixP+" 件",
+    "リストから外した項目\n"+lostP+" 件",
+  ].map(t=>({label:t,fn:()=>{}})));
+}
 function carDiag(){
   const ms=("mediaSession" in navigator);
   let handlers="不明";
@@ -397,6 +440,7 @@ function carDiag(){
 $("#brand").onclick=()=>{
   sheet("VDECK v1",[
     {label:"再読み込み",fn:()=>location.reload()},
+    {label:"迷子のクリップ・リストを修復する",fn:()=>relink()},
     {label:"車での再生を診断する",fn:()=>carDiag()},
     {label:"強制更新（キャッシュを捨てて最新を取得）",fn:async()=>{
       try{
