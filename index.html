@@ -668,7 +668,8 @@ function cardEl(o){
     '<div class="meta"><div class="ttl"></div><div class="sub2"></div></div><button class="more">...</button>';
   d.querySelector(".ttl").textContent=o.title;
   d.querySelector(".sub2").textContent=o.sub;
-  d.querySelector(".meta").onclick=o.tap;
+  // カードのどこを押しても反応するようにする（前は文字の部分しか効かなかった）
+  d.onclick=e=>{if(e.target.closest(".more"))return;o.tap();};
   d.querySelector(".more").onclick=e=>{e.stopPropagation();o.menu()};
   return d;
 }
@@ -714,17 +715,24 @@ function renderPl(){
   const w=$("#plList");w.innerHTML="";
   if(!PLAYLISTS.length){w.innerHTML='<div class="empty"><b>リストがありません</b>お気に入りの順番を作って、まとめて流せます。</div>';return;}
   PLAYLISTS.forEach(p=>{
-    const first=p.items.map(resolve).find(Boolean);
+    const resolved=p.items.map(resolve);
+    const ok=resolved.filter(Boolean);
+    const lost=p.items.length-ok.length;
+    const first=ok[0];
     const th=first?(first.thumb||(VIDEOS.find(v=>v.id===first.videoId)||{}).thumb):null;
-    w.appendChild(cardEl({thumb:th,title:p.name,sub:p.items.length+"曲分",
+    w.appendChild(cardEl({thumb:th,title:p.name,
+      sub:ok.length+"曲"+(lost?" · "+lost+"曲が行方不明":""),
       tap:()=>startPlaylist(p),
       menu:()=>sheet(p.name,[
         {label:"最初から再生",fn:()=>startPlaylist(p,false)},
         {label:"ランダムで再生",fn:()=>startPlaylist(p,true)},
         {label:"中身を編集",fn:()=>editPl(p)},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","リスト名",p.name,async n=>{p.name=n;await put("playlists",p);await reload();})},
+      ].concat(lost?[{label:"行方不明の "+lost+" 曲を取り除く",fn:async()=>{
+        p.items=p.items.filter(it=>resolve(it));await put("playlists",p);
+        await reload();toast("整理しました");}}]:[]).concat([
         {label:"削除する",danger:true,fn:async()=>{await del("playlists",p.id);await reload();toast("削除しました")}}
-      ])}));
+      ]))}));
   });
 }
 function resolve(it){
@@ -761,9 +769,14 @@ function addToPlaylist(item){
 }
 function startPlaylist(p,sh){
   const q=p.items.map(resolve).filter(Boolean);
-  if(!q.length)return toast("中身が空です");
+  if(!q.length){
+    return toast(p.items.length
+      ? "中の曲が見つかりません（元動画が消えています）"
+      : "このリストは空です");
+  }
   if(sh!==undefined){shuffle=sh;syncBtns();}
   playQueue(q,shuffle?Math.floor(Math.random()*q.length):0);
+  toast(q.length+"曲を再生します");
 }
 
 /* 車のステアリングスイッチ・Bluetooth機器・ロック画面からの操作を受ける */
