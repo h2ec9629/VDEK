@@ -372,11 +372,32 @@ function sheetInput(title,ph,val,fn){
 function closeSheet(){$("#sheet").classList.remove("on");$("#veil").classList.remove("on");}
 $("#veil").onclick=closeSheet;
 
+/* 車で使えているか確かめる */
+function carDiag(){
+  const ms=("mediaSession" in navigator);
+  let handlers="不明";
+  if(ms){
+    try{navigator.mediaSession.setActionHandler("nexttrack",()=>next());handlers="受け付けています"}
+    catch(_){handlers="受け付けられません"}
+  }
+  const meta=ms&&navigator.mediaSession.metadata;
+  sheet("車での再生 診断",[
+    "曲情報の窓口\n"+(ms?"使えます":"使えません（このブラウザは未対応）"),
+    "ステアリング操作の受け口\n"+handlers,
+    "ナビに送っている曲名\n"+(meta?meta.title:"未設定"),
+    "ナビに送っている元動画名\n"+(meta&&meta.artist?meta.artist:"未設定"),
+    "ジャケット画像\n"+(meta&&meta.artwork&&meta.artwork.length?"送っています":"なし（サムネ未設定）"),
+    "再生状態\n"+((ms&&navigator.mediaSession.playbackState)||"未設定"),
+    "音量\n"+Math.round(vid.volume*100)+"%"+(vid.muted?"（消音中）":""),
+  ].map(t=>({label:t,fn:()=>{}})));
+}
+
 /* ヘッダーのVDECKをタップ → 更新メニュー
    ホーム画面から起動するとアドレスバーが無く、更新手段が無くなるため */
 $("#brand").onclick=()=>{
   sheet("VDECK v1",[
     {label:"再読み込み",fn:()=>location.reload()},
+    {label:"車での再生を診断する",fn:()=>carDiag()},
     {label:"強制更新（キャッシュを捨てて最新を取得）",fn:async()=>{
       try{
         if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));}
@@ -745,7 +766,56 @@ function startPlaylist(p,sh){
   playQueue(q,shuffle?Math.floor(Math.random()*q.length):0);
 }
 
-/* ============ player ============ */
+/* 車のステアリングスイッチ・Bluetooth機器・ロック画面からの操作を受ける */
+/* 画面を消して戻したときに窓口が外れることがあるので張り直す */
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden){
+    mediaSetup();mediaState();mediaPos();
+    const it=queue[qi];if(it)mediaInfo(it);
+  }
+});
+
+function mediaSetup(){
+  if(!("mediaSession" in navigator))return;
+  const ms=navigator.mediaSession;
+  const set=(k,fn)=>{try{ms.setActionHandler(k,fn)}catch(_){}};
+  set("play",()=>vid.play().catch(()=>{}));
+  set("pause",()=>vid.pause());
+  set("stop",()=>vid.pause());
+  set("nexttrack",()=>next());
+  set("previoustrack",()=>prev());
+  set("seekforward",e=>{const it=queue[qi];if(!it)return;
+    const en=it.end||vid.duration||0;
+    vid.currentTime=Math.min(en-0.1,vid.currentTime+((e&&e.seekOffset)||15));});
+  set("seekbackward",e=>{const it=queue[qi];if(!it)return;
+    vid.currentTime=Math.max(it.start||0,vid.currentTime-((e&&e.seekOffset)||15));});
+  set("seekto",e=>{const it=queue[qi];if(!it||!e||e.seekTime==null)return;
+    vid.currentTime=(it.start||0)+e.seekTime;});
+}
+
+/* ナビ画面やロック画面に曲名とサムネを出す */
+function mediaInfo(it){
+  if(!("mediaSession" in navigator)||!it)return;
+  const v=VIDEOS.find(v=>v.id===it.videoId);
+  const art=it.thumb||(v&&v.thumb);
+  const meta={title:it.title||"VDECK",artist:v?v.name:"VDECK",album:"VDECK"};
+  if(art)meta.artwork=[{src:art,sizes:"320x180",type:"image/jpeg"}];
+  try{navigator.mediaSession.metadata=new MediaMetadata(meta)}catch(_){}
+}
+function mediaState(){
+  if(!("mediaSession" in navigator))return;
+  try{navigator.mediaSession.playbackState=vid.paused?"paused":"playing"}catch(_){}
+}
+function mediaPos(){
+  if(!("mediaSession" in navigator)||!navigator.mediaSession.setPositionState)return;
+  const it=queue[qi];if(!it)return;
+  const s=it.start||0,en=it.end||vid.duration||0;
+  const dur=Math.max(0,en-s);
+  if(!isFinite(dur)||dur<=0)return;
+  try{navigator.mediaSession.setPositionState({
+    duration:dur,playbackRate:vid.playbackRate||1,
+    position:Math.max(0,Math.min(dur,vid.currentTime-s))});}catch(_){}
+}
 function playQueue(q,i){queue=q;qi=i;go("now");load(true);}
 async function load(auto){
   const it=queue[qi];if(!it)return;
@@ -762,6 +832,7 @@ async function load(auto){
   $("#toggleEdit").textContent="切り出しモードにする";$("#toggleEdit").classList.remove("pri");
   const v=VIDEOS.find(v=>v.id===it.videoId);
   $("#npSrc").textContent=(it.kind==="clip"?"クリップ · 元 "+(v?v.name:"?"):"元動画")+" · "+fmt1(it.start)+(it.end?" → "+fmt1(it.end):"");
+  mediaInfo(it);
   const seek=()=>{try{vid.currentTime=it.start||0}catch(_){}; if(auto)vid.play().catch(()=>toast("再生ボタンを押してください"));};
   if(vid.readyState>=1)seek();else vid.onloadedmetadata=seek;
   renderQueue();
@@ -795,7 +866,7 @@ function syncBtns(){
   $("#icPlay").innerHTML=vid.paused?IC_PLAY:IC_PAUSE;
   $("#bPlay").setAttribute("aria-label",vid.paused?"再生":"一時停止");
 }
-vid.onplay=vid.onpause=syncBtns;
+vid.onplay=vid.onpause=()=>{syncBtns();mediaState();mediaPos();};
 vid.onended=next;
 vid.onerror=()=>{const c=vid.error&&vid.error.code;
   toast(c===4?"iPhoneが再生できない形式です":c===3?"デコード失敗（形式が特殊です）":
@@ -808,6 +879,7 @@ vid.ontimeupdate=()=>{
   $("#tFill").style.width=Math.max(0,Math.min(100,p))+"%";
   $("#miniTime").textContent=fmt(vid.currentTime-s)+" / "+fmt(e-s);
   drawSeek();
+  if((mpTick=(mpTick+1)%8)===0)mediaPos();
   if(ed)drawEd();
 };
 $("#tBar").onclick=e=>{
@@ -940,7 +1012,7 @@ async function buildWave(videoId,dur){
   waveBusy=false;waveDirty=true;drawWave(true);
 }
 
-let waveDirty=true,waveW=0;
+let waveDirty=true,waveW=0,mpTick=0;
 function drawWave(force){
   const cv=$("#wave");if(!cv||!ed)return;
   const r=cv.parentElement.getBoundingClientRect();
@@ -1184,7 +1256,7 @@ async function reload(){
   }
 }
 window.addEventListener("resize",()=>ed&&drawEd(true));
-openDB().then(reload).then(syncBtns).catch(e=>{
+openDB().then(reload).then(syncBtns).then(mediaSetup).catch(e=>{
   document.body.innerHTML='<p style="padding:40px;color:#e8a33d;font-family:sans-serif">保存領域が使えませんでした。Safariのプライベートブラウズを解除してから開き直してください。<br><br>'+e+'</p>';
 });
 </script>
