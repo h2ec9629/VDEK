@@ -271,8 +271,9 @@ input[type=text]{
           </div>
         </div>
         <div class="tc" style="margin-top:2px">
-          <span id="waveNote" style="font-size:11px">音を解析中…</span>
+          <span id="waveNote" style="font-size:11px">波形はまだ出してません</span>
         </div>
+        <button class="btn sm" id="waveBtn" style="width:100%;margin-top:6px">音の波形を出す（無音の位置を探す）</button>
         <div class="tc">
           <span>IN <b id="tIn">0:00.0</b></span>
           <span id="tLen">0.0秒</span>
@@ -825,8 +826,31 @@ function renderQueue(){
 let waveFor=null,waveData=null,waveBusy=false,waveAbort=false;
 const WAVE_N=900;
 
-/* 音声を丸ごと展開すると1時間モノでメモリが尽きるので、
-   時間を区切って少しずつ展開し、済んだ分から捨てながら進める */
+/* 走査は重いので、別の作業場（Worker）に投げてアプリ本体を止めない */
+let waveWorker=null;
+function getWaveWorker(){
+  if(waveWorker)return waveWorker;
+  const src=`
+    self.onmessage=e=>{
+      const {ch,N}=e.data;
+      const peaks=new Float32Array(N);
+      const step=Math.max(1,Math.floor(ch.length/N));
+      let max=0;
+      for(let i=0;i<N;i++){
+        let p=0;const a0=i*step,a1=Math.min(ch.length,a0+step);
+        for(let j=a0;j<a1;j++){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
+        peaks[i]=p;if(p>max)max=p;
+        if((i&63)===0)self.postMessage({progress:(i+1)/N});
+      }
+      if(max>0)for(let i=0;i<N;i++)peaks[i]/=max;
+      self.postMessage({done:true,peaks,max},[peaks.buffer]);
+    };`;
+  try{
+    waveWorker=new Worker(URL.createObjectURL(new Blob([src],{type:"text/javascript"})));
+  }catch(_){waveWorker=null}
+  return waveWorker;
+}
+
 async function buildWave(videoId,dur){
   if(waveBusy){waveAbort=true;return;}
   waveBusy=true;waveAbort=false;waveFor=videoId;waveData=null;
@@ -837,77 +861,72 @@ async function buildWave(videoId,dur){
     const rec=await one("videos",videoId);
     const b=await blobOf(rec);
     if(!b)throw new Error("no-data");
-    const total=dur||ed&&ed.dur||0;
-    if(!total)throw new Error("no-dur");
 
-    const peaks=new Float32Array(WAVE_N);
-    waveData=peaks;                       // 途中経過も描けるよう先に差しておく
-    const SEG=total>1800?90:total>600?120:total;  // 長尺ほど細かく刻む
-    const segs=Math.max(1,Math.ceil(total/SEG));
-    let max=0,got=0;
+    note.textContent="音を読み込んでます…";
+    drawWave();
+    await new Promise(r=>setTimeout(r,60));
+    const bytes=await b.arrayBuffer();
 
-    for(let s=0;s<segs;s++){
-      if(waveAbort)break;
-      const t0=s*SEG,t1=Math.min(total,t0+SEG);
-      // ファイルの該当部分だけを切り出して展開する
-      const from=Math.floor(b.size*(t0/total)),to=Math.ceil(b.size*(t1/total));
-      let buf=null;
+    note.textContent="音を展開してます…";
+    await new Promise(r=>setTimeout(r,60));
+
+    // 8kHzで展開する。波形を見るには十分で、データ量は6分の1以下になる
+    let buf=null;
+    try{
+      const lo=new AC({sampleRate:8000});
+      buf=await lo.decodeAudioData(bytes.slice(0));
+      try{lo.close()}catch(_){}
+    }catch(_){ }
+    if(!buf){
       const ctx=new AC();
-      try{
-        buf=await ctx.decodeAudioData(await b.slice(from,to).arrayBuffer());
-      }catch(_){ }
-      if(buf){
-        got++;
-        const ch=buf.getChannelData(0);
-        const i0=Math.floor(WAVE_N*(t0/total)),i1=Math.max(i0+1,Math.floor(WAVE_N*(t1/total)));
-        const span=Math.max(1,Math.floor(ch.length/(i1-i0)));
-        for(let i=i0;i<i1;i++){
-          let p=0;const a0=(i-i0)*span,a1=Math.min(ch.length,a0+span);
-          for(let j=a0;j<a1;j+=11){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
-          peaks[i]=p;if(p>max)max=p;
+      buf=await ctx.decodeAudioData(bytes);
+      try{ctx.close()}catch(_){}
+    }
+    const ch=Float32Array.from(buf.getChannelData(0));
+    buf=null;
+
+    const w=getWaveWorker();
+    if(w){
+      const peaks=await new Promise((res,rej)=>{
+        const to=setTimeout(()=>rej(new Error("timeout")),180000);
+        w.onmessage=ev=>{
+          if(ev.data.progress!==undefined){
+            note.textContent="音を解析中… "+Math.round(ev.data.progress*100)+"%";
+            return;
+          }
+          clearTimeout(to);res(ev.data.max>0?ev.data.peaks:null);
+        };
+        w.onerror=()=>{clearTimeout(to);rej(new Error("worker"))};
+        w.postMessage({ch,N:WAVE_N},[ch.buffer]);
+      });
+      waveData=peaks;
+    }else{
+      // Workerが使えない環境向けの保険（少しずつ区切って走査する）
+      const peaks=new Float32Array(WAVE_N);
+      const step=Math.max(1,Math.floor(ch.length/WAVE_N));
+      let max=0;
+      for(let i=0;i<WAVE_N;i++){
+        let p=0;const a0=i*step,a1=Math.min(ch.length,a0+step);
+        for(let j=a0;j<a1;j++){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
+        peaks[i]=p;if(p>max)max=p;
+        if((i&31)===0){
+          note.textContent="音を解析中… "+Math.round((i+1)/WAVE_N*100)+"%";
+          await new Promise(r=>setTimeout(r,0));
         }
       }
-      try{ctx.close()}catch(_){}
-      buf=null;
-      note.textContent="音を解析中… "+Math.round((s+1)/segs*100)+"%";
-      // 正規化して途中経過を描く
-      if(max>0){const tmp=new Float32Array(WAVE_N);
-        for(let i=0;i<WAVE_N;i++)tmp[i]=peaks[i]/max;waveData=tmp;}
-      drawWave();
-      await new Promise(r=>setTimeout(r,0));   // 画面を固まらせない
+      if(max>0){for(let i=0;i<WAVE_N;i++)peaks[i]/=max;waveData=peaks;}
     }
 
-    // 小分けが1つも通らなかった場合は、丸ごと展開に切り替える
-    if(!got&&!waveAbort){
-      note.textContent="小分けが効きません。まとめて解析します…";
-      await new Promise(r=>setTimeout(r,0));
-      const ctx=new AC();
-      try{
-        const buf=await ctx.decodeAudioData(await b.arrayBuffer());
-        const ch=buf.getChannelData(0);
-        const step=Math.max(1,Math.floor(ch.length/WAVE_N));
-        max=0;
-        for(let i=0;i<WAVE_N;i++){
-          let p=0;const a0=i*step,a1=Math.min(ch.length,a0+step);
-          for(let j=a0;j<a1;j+=11){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
-          peaks[i]=p;if(p>max)max=p;
-        }
-        if(max>0){const tmp=new Float32Array(WAVE_N);
-          for(let i=0;i<WAVE_N;i++)tmp[i]=peaks[i]/max;waveData=tmp;}
-      }catch(_){ }
-      try{ctx.close()}catch(_){}
-    }
-    const any=waveData&&waveData.some(v=>v>0);
-    note.textContent=any?"濃い谷が無音です":
-      "音を読み取れませんでした（音声が無いか、iPhoneが展開できない音声形式です）";
-    if(!any)waveData=null;
+    note.textContent=waveData?"濃い谷が無音です":
+      "音を読み取れませんでした（音声が無いか、展開できない形式です）";
   }catch(e){
     waveData=null;
     const m=(e&&e.message)||String(e);
     note.textContent=
       m==="no-audio"?"このブラウザは音の解析に対応してません":
       m==="no-data" ?"元動画のデータが見つかりません":
-      m==="no-dur"  ?"動画の長さが分からないので解析できません（先に『調べ直す』を）":
+      m==="timeout" ?"解析に時間がかかりすぎました":
+      /memory|allocat/i.test(m)?"音が大きすぎて解析できませんでした":
       "波形を出せません（"+m+"）";
   }
   waveBusy=false;drawWave();
@@ -960,8 +979,12 @@ function openEditor(videoId,inT,outT,clipId){
     $("#toggleEdit").textContent="再生モードに戻る";$("#toggleEdit").classList.add("pri");
     document.body.classList.add("editing");
     drawEd();
-    if(waveFor!==videoId||!waveData)buildWave(videoId,ed.dur);
-    else $("#waveNote").textContent="濃い谷が無音です";
+    if(waveFor===videoId&&waveData)$("#waveNote").textContent="濃い谷が無音です";
+    else{
+      waveData=null;waveFor=null;
+      $("#waveNote").textContent="波形はまだ出してません";
+    }
+    $("#waveBtn").style.display=(waveFor===videoId&&waveData)?"none":"block";
   };
   if(vid.readyState>=1)set();else vid.addEventListener("loadedmetadata",set,{once:true});
 }
@@ -1035,6 +1058,17 @@ $("#b15f").onclick=()=>{const it=queue[qi];if(!it)return;
 const SPEEDS=[1,1.25,1.5,2,0.5,0.75];let si=0;
 $("#bSpeed").onclick=()=>{si=(si+1)%SPEEDS.length;vid.playbackRate=SPEEDS[si];
   $("#bSpeed").textContent="速度 "+SPEEDS[si].toFixed(2).replace(/0$/,"").replace(/\.$/,"")+"x";};
+
+$("#waveBtn").onclick=async()=>{
+  if(!ed)return;
+  if(waveBusy)return toast("解析中です");
+  $("#waveBtn").style.display="none";
+  const wasPlaying=!vid.paused;
+  vid.pause();                    // 解析中は再生を止めておく
+  await buildWave(ed.videoId,ed.dur);
+  if(wasPlaying)vid.play().catch(()=>{});
+  if(!waveData)$("#waveBtn").style.display="block";
+};
 
 /* 再生モード / 切り出しモードの切り替え */
 $("#toggleEdit").onclick=()=>{
