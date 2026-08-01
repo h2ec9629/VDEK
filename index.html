@@ -107,28 +107,19 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .seekfill{position:absolute;left:0;top:0;height:100%;border-radius:3px;background:var(--amber);width:0}
 .seekknob{position:absolute;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
   background:var(--fg);border:2px solid var(--ink);left:0;box-shadow:0 1px 4px rgba(0,0,0,.5)}
-.splicepad{padding:0 22px}
-
-/* ---- signature: the splice bar ---- */
-.splice{position:relative;height:96px;margin:14px 0 4px;touch-action:none}
-.splice .track{
-  position:absolute;left:0;right:0;top:36px;height:54px;border-radius:4px;
-  background:var(--ink2);border:1px solid var(--line);z-index:0;
-}
-#wave{position:absolute;left:0;top:36px;display:block;pointer-events:none;z-index:2}
-.splice .sel{position:absolute;top:36px;height:54px;border-radius:4px;z-index:1;
-  background:rgba(232,163,61,.10);border-left:2px solid var(--cut);border-right:2px solid var(--amber)}
-.splice .play{position:absolute;top:32px;width:2px;height:62px;background:var(--fg);margin-left:-1px;z-index:3}
-.flag{
-  position:absolute;top:0;width:36px;height:32px;margin-left:-18px;z-index:4;
-  display:flex;align-items:center;justify-content:center;
-  font-family:var(--mono);font-size:10px;font-weight:700;
-  border-radius:8px;background:var(--ink2);border:1px solid var(--cut);color:var(--cut);
-}
-.flag::after{content:"";position:absolute;top:32px;width:1px;height:58px;background:currentColor;opacity:.55}
-.flag.out{border-color:var(--amber);color:var(--amber)}
 .tc{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--dim)}
 .tc b{color:var(--fg);font-weight:600}
+
+/* ---- analyzer（ドットマトリクス風スペクトラム） ---- */
+.analyzerWrap{
+  margin:18px 0 4px;padding:14px;border-radius:14px;
+  background:var(--ink2);border:1px solid var(--line);
+}
+.analyzerWrap .cap{
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
+  margin-bottom:10px;text-transform:uppercase;
+}
+#analyzer{display:block;width:100%;height:230px}
 
 /* ---- transport ---- */
 #transport{
@@ -218,12 +209,6 @@ input[type=text]{
     <div id="libList"></div>
   </section>
 
-  <!-- CLIPS -->
-  <section class="pane" id="pane-clip">
-    <div class="eyebrow">切り出しクリップ</div>
-    <div id="clipList"></div>
-  </section>
-
   <!-- PLAYLISTS -->
   <section class="pane" id="pane-pl">
     <div class="eyebrow">再生リスト</div>
@@ -254,41 +239,9 @@ input[type=text]{
         </div>
       </div>
 
-      <button class="btn wide" id="toggleEdit" style="margin-top:16px">切り出しモードにする</button>
-
-      <div id="editWrap" style="display:none">
-        <div class="eyebrow">IN / OUT を決めて切り出す</div>
-        <div class="splicepad">
-          <div class="splice" id="splice">
-            <canvas id="wave"></canvas>
-            <div class="track"></div><div class="sel" id="sel"></div>
-            <div class="play" id="ph"></div>
-            <div class="flag" id="fIn">IN</div>
-            <div class="flag out" id="fOut">OUT</div>
-          </div>
-        </div>
-        <div class="tc" style="margin-top:2px">
-          <span id="waveNote" style="font-size:11px">波形はまだ出してません</span>
-        </div>
-        <button class="btn sm" id="waveBtn" style="width:100%;margin-top:6px">音の波形を出す（無音の位置を探す）</button>
-        <button class="btn sm" id="autoBtn" style="width:100%;margin-top:6px;display:none">無音で自動的に曲を切り分ける</button>
-        <div class="tc">
-          <span>IN <b id="tIn">0:00.0</b></span>
-          <span id="tLen">0.0秒</span>
-          <span>OUT <b id="tOut">0:00.0</b></span>
-        </div>
-        <p class="hint" style="margin:8px 0 0">このバーは IN / OUT 専用です。頭出しは上のシークバーでどうぞ。</p>
-        <div class="row" style="margin-top:12px">
-          <button class="btn sm" id="setIn">今ここをIN</button>
-          <button class="btn sm" id="setOut">今ここをOUT</button>
-          <button class="btn sm" id="prevSel">範囲を試聴</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button class="btn pri wide" id="saveClip">この範囲をクリップとして保存</button>
-        </div>
-        <p class="hint" style="margin-top:12px">
-          クリップは「元曲＋開始/終了の位置」として保存されます。元ファイルは1本のまま増えないので、容量を食いません。
-        </p>
+      <div class="analyzerWrap">
+        <div class="cap">analyzer</div>
+        <canvas id="analyzer"></canvas>
       </div>
 
       <div id="queueWrap" style="margin-top:22px"></div>
@@ -299,19 +252,18 @@ input[type=text]{
 <div id="transport">
   <div id="tBar"><div id="tBarIn"><div id="tFill"></div></div></div>
   <div class="tRow">
+    <div class="np"><div class="ttl" id="miniTitle">—</div>
+      <div class="sub2" id="miniTime">0:00 / 0:00</div></div>
     <button class="ctl" id="bShuffle" aria-label="ランダム"><svg viewBox="0 0 24 24"><path d="M17 4l4 3-4 3"/><path d="M17 14l4 3-4 3"/><path d="M3 7h4l3 4"/><path d="M3 17h4l10-13h4"/><path d="M14 17h7"/></svg></button>
     <button class="ctl" id="bPrev" aria-label="前へ"><svg viewBox="0 0 24 24"><path d="M6 5v14" stroke-linecap="round"/><path d="M19 5.5v13a.7.7 0 0 1-1.1.6L8.5 12.6a.7.7 0 0 1 0-1.2l9.4-6.5a.7.7 0 0 1 1.1.6z" fill="currentColor" stroke="none"/></svg></button>
     <button class="ctl big" id="bPlay" aria-label="再生"><svg viewBox="0 0 24 24" id="icPlay"><path d="M7 4.5v15a.6.6 0 0 0 .93.5l11.5-7.5a.6.6 0 0 0 0-1L7.93 4a.6.6 0 0 0-.93.5z" fill="currentColor" stroke="none"/></svg></button>
     <button class="ctl" id="bNext" aria-label="次へ"><svg viewBox="0 0 24 24"><path d="M18 5v14" stroke-linecap="round"/><path d="M5 5.5v13a.7.7 0 0 0 1.1.6l9.4-6.5a.7.7 0 0 0 0-1.2L6.1 4.9A.7.7 0 0 0 5 5.5z" fill="currentColor" stroke="none"/></svg></button>
     <button class="ctl" id="bRepeat" aria-label="繰り返し"><svg viewBox="0 0 24 24" id="icRepeat"><path d="M17 2l4 4-4 4"/><path d="M3 12V10a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/></svg></button>
-    <div class="np"><div class="ttl" id="miniTitle">—</div>
-      <div class="sub2" id="miniTime">0:00 / 0:00</div></div>
   </div>
 </div>
 
 <nav>
   <button class="on" data-p="lib"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 9v11"/></svg>LIBRARY</button>
-  <button data-p="clip"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.2 7.6L20 18M8.2 16.4L20 6"/></svg>CLIPS</button>
   <button data-p="pl"><svg viewBox="0 0 24 24"><path d="M3 6h12M3 11h12M3 16h7"/><circle cx="17" cy="17" r="3"/><path d="M20 17V8l3 1"/></svg>LISTS</button>
   <button data-p="now"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.8v6.4l5-3.2z" fill="currentColor" stroke="none"/></svg>NOW</button>
 </nav>
@@ -336,9 +288,8 @@ function one(s,id){return new Promise((res,rej)=>{const r=tx(s,"readonly").get(i
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
 /* ============ state ============ */
-let VIDEOS=[],CLIPS=[],PLAYLISTS=[];
+let VIDEOS=[],PLAYLISTS=[];
 let queue=[],qi=-1,shuffle=false,repeat="off",curURL=null,curVid=null;
-let ed=null; // {videoId,dur,inT,outT}
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const vid=$("#vid");
@@ -370,37 +321,15 @@ function sheetInput(title,ph,val,fn){
 function closeSheet(){$("#sheet").classList.remove("on");$("#veil").classList.remove("on");}
 $("#veil").onclick=closeSheet;
 
-/* 曲を取り込み直すと中身のIDが変わり、
-   クリップや再生リストが古いIDを指したまま迷子になる。
-   名前を手がかりに、いまある曲へ貼り替える。
-   切り出した位置（開始/終了）はそのまま残るので、作業のやり直しは不要。 */
+/* 曲を取り込み直すと中身のIDが変わり、再生リストが古いIDを
+   指したまま迷子になることがある。消えた項目をリストから外す。 */
 async function relink(){
-  const norm=s=>String(s||"").toLowerCase().replace(/[\s_\-.\u3000]/g,"");
   const byId=new Set(VIDEOS.map(v=>v.id));
-  const byName=new Map();
-  VIDEOS.forEach(v=>{const k=norm(v.name);if(!byName.has(k))byName.set(k,v.id)});
-
-  // 迷子のクリップを、名前が一致する曲へ貼り替える
-  let fixC=0,lostC=0;
-  for(const c of CLIPS){
-    if(byId.has(c.videoId))continue;
-    // クリップ名は「元曲名 切り出し」の形が多いので、そこから元曲名を拾う
-    const base=norm(String(c.name).replace(/\s*切り出し\s*$/,""));
-    let id=byName.get(base);
-    if(!id){
-      for(const [k,v] of byName){ if(base&&(k.includes(base)||base.includes(k))){id=v;break;} }
-    }
-    if(id){c.videoId=id;await put("clips",c);fixC++;}
-    else lostC++;
-  }
-
-  // 再生リストの中で、消えたクリップ/曲を指している項目を数える
   let fixP=0,lostP=0;
-  const clipIds=new Set(CLIPS.map(c=>c.id));
   for(const p of PLAYLISTS){
     let changed=false;
     p.items=p.items.filter(it=>{
-      const alive=it.kind==="video"?byId.has(it.refId):clipIds.has(it.refId);
+      const alive=byId.has(it.refId);
       if(!alive){lostP++;changed=true;return false;}
       return true;
     });
@@ -408,8 +337,6 @@ async function relink(){
   }
   await reload();
   sheet("修復しました",[
-    "貼り替えたクリップ\n"+fixC+" 件（切り出し位置はそのまま）",
-    "貼り替えられなかったクリップ\n"+lostC+" 件"+(lostC?"（元曲が見つかりません）":""),
     "手直しした再生リスト\n"+fixP+" 件",
     "リストから外した項目\n"+lostP+" 件",
   ].map(t=>({label:t,fn:()=>{}})));
@@ -438,7 +365,7 @@ function carDiag(){
 $("#brand").onclick=()=>{
   sheet("VDECK v1",[
     {label:"再読み込み",fn:()=>location.reload()},
-    {label:"迷子のクリップ・リストを修復する",fn:()=>relink()},
+    {label:"迷子のリストを修復する",fn:()=>relink()},
     {label:"車での再生を診断する",fn:()=>carDiag()},
     {label:"強制更新（キャッシュを捨てて最新を取得）",fn:async()=>{
       try{
@@ -459,7 +386,7 @@ $("#brand").onclick=()=>{
       sheet("保存状況",[
         "使用中\n"+mb(usage),
         "使える上限（目安）\n"+(quota?mb(quota):"不明"),
-        "曲 / クリップ / リスト\n"+VIDEOS.length+" / "+CLIPS.length+" / "+PLAYLISTS.length+" 件",
+        "曲 / リスト\n"+VIDEOS.length+" / "+PLAYLISTS.length+" 件",
         "保存されている かけら\n"+chunks+" 個",
       ].map(t=>({label:t,fn:()=>{}})));
     }},
@@ -559,7 +486,6 @@ async function dropVideo(v){
   if(blobCache.id===v.id)blobCache={id:null,blob:null};
   await del("videos",v.id);
   if(v.chunks)for(let i=0;i<v.chunks;i++){try{await del("chunks",v.id+":"+i)}catch(_){}}
-  for(const c of CLIPS.filter(c=>c.videoId===v.id))await del("clips",c.id);
 }
 function report(ng,ok){
   sheet("取り込めなかったファイル "+ng.length+"件",
@@ -683,37 +609,19 @@ function renderLib(){
   if(!VIDEOS.length){w.innerHTML='<div class="empty"><b>まだ何もありません</b>上の「曲を取り込む」からmp3などを選んでください。</div>';return;}
   VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt).forEach(v=>{
     w.appendChild(cardEl({thumb:v.thumb,title:v.name,sub:fmt(v.dur)+" · "+mb(v.size)+(v.data||v.chunks?"":" · 要 再取込"),
-      tap:()=>{playLibraryFrom(v.id);openEditor(v.id);},
+      tap:()=>playLibraryFrom(v.id),
       menu:()=>sheet(v.name,[
         {label:"再生する",fn:()=>playLibraryFrom(v.id)},
-        {label:"切り出しエディタを開く",fn:()=>{playLibraryFrom(v.id);openEditor(v.id);}},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"video",refId:v.id})},
         {label:"長さとサムネを調べ直す",fn:()=>repair(v)},
         {label:"診断する（データが揃ってるか）",fn:()=>diagnose(v)},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",v.name,async n=>{v.name=n;await put("videos",v);await reload();})},
-        {label:"削除する（クリップも消えます）",danger:true,fn:async()=>{
+        {label:"削除する",danger:true,fn:async()=>{
           await dropVideo(v);
           await reload();toast("削除しました");}}
       ])}));
   });
 }
-function renderClips(){
-  const w=$("#clipList");w.innerHTML="";
-  if(!CLIPS.length){w.innerHTML='<div class="empty"><b>クリップがありません</b>ライブラリの曲を開いて、IN と OUT を決めれば作れます。</div>';return;}
-  CLIPS.slice().sort((a,b)=>b.createdAt-a.createdAt).forEach(c=>{
-    const v=VIDEOS.find(v=>v.id===c.videoId);if(!v)return;
-    w.appendChild(cardEl({thumb:null,title:c.name,sub:(c.end-c.start).toFixed(1)+"秒 · "+v.name,
-      tap:()=>playClipsFrom(c.id),
-      menu:()=>sheet(c.name,[
-        {label:"再生する",fn:()=>playClipsFrom(c.id)},
-        {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"clip",refId:c.id})},
-        {label:"範囲を編集しなおす",fn:()=>{playClipsFrom(c.id);openEditor(c.videoId,c.start,c.end,c.id);}},
-        {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",c.name,async n=>{c.name=n;await put("clips",c);await reload();})},
-        {label:"削除する",danger:true,fn:async()=>{await del("clips",c.id);await reload();toast("削除しました")}}
-      ])}));
-  });
-}
-const clipItem=c=>({kind:"clip",videoId:c.videoId,title:c.name,start:c.start,end:c.end,clipId:c.id});
 
 function renderPl(){
   const w=$("#plList");w.innerHTML="";
@@ -740,8 +648,8 @@ function renderPl(){
   });
 }
 function resolve(it){
-  if(it.kind==="video"){const v=VIDEOS.find(v=>v.id===it.refId);return v?{kind:"video",videoId:v.id,title:v.name,start:0,end:null,thumb:v.thumb}:null;}
-  const c=CLIPS.find(c=>c.id===it.refId);return c?clipItem(c):null;
+  const v=VIDEOS.find(v=>v.id===it.refId);
+  return v?{kind:"video",videoId:v.id,title:v.name,start:0,end:null,thumb:v.thumb}:null;
 }
 function editPl(p){
   const s=$("#sheet");s.innerHTML="<h3>"+p.name+" の中身</h3>";
@@ -843,12 +751,6 @@ function playLibraryFrom(videoId){
   const i=q.findIndex(it=>it.videoId===videoId);
   playQueue(q,i>=0?i:0);
 }
-/* クリップも同様。クリップ一覧全体をキューにする */
-function playClipsFrom(clipId){
-  const q=CLIPS.slice().sort((a,b)=>b.createdAt-a.createdAt).map(clipItem);
-  const i=q.findIndex(it=>it.clipId===clipId);
-  playQueue(q,i>=0?i:0);
-}
 let skipGuard=0;
 async function load(auto){
   const it=queue[qi];if(!it)return;
@@ -870,12 +772,9 @@ async function load(auto){
     curURL=URL.createObjectURL(b);curVid=it.videoId;vid.src=curURL;vid.load();
   }
   $("#npTitle").textContent=it.title;$("#miniTitle").textContent=it.title;
-  ed=null;$("#editWrap").style.display="none";
-  document.body.classList.remove("editing");
-  $("#toggleEdit").textContent="切り出しモードにする";$("#toggleEdit").classList.remove("pri");
-  const v=VIDEOS.find(v=>v.id===it.videoId);
-  $("#npSrc").textContent=(it.kind==="clip"?"クリップ · 元 "+(v?v.name:"?"):"元曲")+" · "+fmt1(it.start)+(it.end?" → "+fmt1(it.end):"");
+  $("#npSrc").textContent="元曲 · "+fmt1(it.start);
   mediaInfo(it);
+  ensureAnalyser();
   // 巨大な曲の深い位置までシークすると、iPhone側が内部で再バッファして
   // loadedmetadataをもう一度発火させることがある。onloadedmetadata=seek のままだと
   // そのたびに頭出し処理が再実行され「頭に巻き戻る→少し再生→また巻き戻る」を繰り返す。
@@ -931,7 +830,6 @@ vid.ontimeupdate=()=>{
   $("#miniTime").textContent=fmt(vid.currentTime-s)+" / "+fmt(e-s);
   drawSeek();
   if((mpTick=(mpTick+1)%8)===0)mediaPos();
-  if(ed)drawEd();
 };
 $("#tBar").onclick=e=>{
   const it=queue[qi];if(!it)return;const r=$("#tBarIn").getBoundingClientRect();
@@ -953,232 +851,100 @@ function renderQueue(){
   });
 }
 
-/* ===== 音の波形（無音の位置を見つけるため） ===== */
-let waveFor=null,waveData=null,fineData=null,waveBusy=false,waveAbort=false;
-const WAVE_N=900;
+/* ===== アナライザー（オレンジのドットマトリクスで音を可視化） ===== */
+let mpTick=0;
+let actx=null,analyser=null,srcNode=null,freqBins=null;
+const AN_COLS=25,AN_ROWS=25;
+let anPeaks=new Array(AN_COLS).fill(0);
 
-/* 走査は重いので、別の作業場（Worker）に投げてアプリ本体を止めない */
-let waveWorker=null;
-function getWaveWorker(){
-  if(waveWorker)return waveWorker;
-  const src=`
-    self.onmessage=e=>{
-      const {ch,N,rate}=e.data;
-      const peaks=new Float32Array(N);
-      const step=Math.max(1,Math.floor(ch.length/N));
-      let max=0;
-      for(let i=0;i<N;i++){
-        let p=0;const a0=i*step,a1=Math.min(ch.length,a0+step);
-        for(let j=a0;j<a1;j++){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
-        peaks[i]=p;if(p>max)max=p;
-        if((i&63)===0)self.postMessage({progress:(i+1)/N});
-      }
-      if(max>0)for(let i=0;i<N;i++)peaks[i]/=max;
-
-      // 0.1秒ごとの音量（無音の区切りを探すため）
-      const win=Math.max(1,Math.round(rate*0.1));
-      const M=Math.max(1,Math.floor(ch.length/win));
-      const fine=new Float32Array(M);
-      let fmax=0;
-      for(let i=0;i<M;i++){
-        let sum=0;const a0=i*win,a1=Math.min(ch.length,a0+win);
-        for(let j=a0;j<a1;j++)sum+=ch[j]*ch[j];
-        const rms=Math.sqrt(sum/Math.max(1,a1-a0));
-        fine[i]=rms;if(rms>fmax)fmax=rms;
-      }
-      if(fmax>0)for(let i=0;i<M;i++)fine[i]/=fmax;
-
-      self.postMessage({done:true,peaks,fine,max},[peaks.buffer,fine.buffer]);
-    };`;
-  try{
-    waveWorker=new Worker(URL.createObjectURL(new Blob([src],{type:"text/javascript"})));
-  }catch(_){waveWorker=null}
-  return waveWorker;
-}
-
-async function buildWave(videoId,dur){
-  if(waveBusy){waveAbort=true;return;}
-  waveBusy=true;waveAbort=false;waveFor=videoId;waveData=null;
-  const note=$("#waveNote");
+/* AudioContextの生成自体はいつでもできるが、iPhoneはユーザー操作（タップ）の
+   中でresume()しないと音が出ない仕組みになっている。
+   生成はここで済ませておき、実際の許可は下のタップ検知でもらう */
+function ensureAnalyser(){
+  if(actx)return;
   const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return;
   try{
-    if(!AC)throw new Error("no-audio");
-    const rec=await one("videos",videoId);
-    const b=await blobOf(rec);
-    if(!b)throw new Error("no-data");
-
-    note.textContent="音を読み込んでます…";
-    drawWave();
-    await new Promise(r=>setTimeout(r,60));
-    const bytes=await b.arrayBuffer();
-
-    note.textContent="音を展開してます…";
-    await new Promise(r=>setTimeout(r,60));
-
-    // 8kHzで展開する。波形を見るには十分で、データ量は6分の1以下になる
-    let buf=null;
-    try{
-      const lo=new AC({sampleRate:8000});
-      buf=await lo.decodeAudioData(bytes.slice(0));
-      try{lo.close()}catch(_){}
-    }catch(_){ }
-    if(!buf){
-      const ctx=new AC();
-      buf=await ctx.decodeAudioData(bytes);
-      try{ctx.close()}catch(_){}
-    }
-    const rate=buf.sampleRate||8000;
-    const ch=Float32Array.from(buf.getChannelData(0));
-    buf=null;
-
-    const w=getWaveWorker();
-    if(w){
-      const r=await new Promise((res,rej)=>{
-        const to=setTimeout(()=>rej(new Error("timeout")),180000);
-        w.onmessage=ev=>{
-          if(ev.data.progress!==undefined){
-            note.textContent="音を解析中… "+Math.round(ev.data.progress*100)+"%";
-            return;
-          }
-          clearTimeout(to);res(ev.data);
-        };
-        w.onerror=()=>{clearTimeout(to);rej(new Error("worker"))};
-        w.postMessage({ch,N:WAVE_N,rate},[ch.buffer]);
-      });
-      waveData=r.max>0?r.peaks:null;
-      fineData=r.max>0?r.fine:null;
-    }else{
-      // Workerが使えない環境向けの保険（少しずつ区切って走査する）
-      const peaks=new Float32Array(WAVE_N);
-      const step=Math.max(1,Math.floor(ch.length/WAVE_N));
-      let max=0;
-      for(let i=0;i<WAVE_N;i++){
-        let p=0;const a0=i*step,a1=Math.min(ch.length,a0+step);
-        for(let j=a0;j<a1;j++){const a=ch[j]<0?-ch[j]:ch[j];if(a>p)p=a;}
-        peaks[i]=p;if(p>max)max=p;
-        if((i&31)===0){
-          note.textContent="音を解析中… "+Math.round((i+1)/WAVE_N*100)+"%";
-          await new Promise(r=>setTimeout(r,0));
-        }
-      }
-      if(max>0){for(let i=0;i<WAVE_N;i++)peaks[i]/=max;waveData=peaks;}
-    }
-
-    if($("#autoBtn"))$("#autoBtn").style.display=waveData?"block":"none";
-    note.textContent=waveData?"濃い谷が無音です":
-      "音を読み取れませんでした（音声が無いか、展開できない形式です）";
-  }catch(e){
-    waveData=null;
-    const m=(e&&e.message)||String(e);
-    note.textContent=
-      m==="no-audio"?"このブラウザは音の解析に対応してません":
-      m==="no-data" ?"元曲のデータが見つかりません":
-      m==="timeout" ?"解析に時間がかかりすぎました":
-      /memory|allocat/i.test(m)?"音が大きすぎて解析できませんでした":
-      "波形を出せません（"+m+"）";
-  }
-  waveBusy=false;waveDirty=true;drawWave(true);
+    actx=new AC();
+    srcNode=actx.createMediaElementSource(vid);
+    analyser=actx.createAnalyser();
+    analyser.fftSize=2048;
+    analyser.smoothingTimeConstant=0.8;
+    srcNode.connect(analyser);
+    analyser.connect(actx.destination);
+    freqBins=new Uint8Array(analyser.frequencyBinCount);
+  }catch(_){actx=null;analyser=null;}
 }
+/* 画面のどこかをタップした瞬間に解錠しておく。これでiPhoneの
+   自動再生制限（ユーザー操作なしに音を出せない）に引っかからない */
+function unlockAnalyser(){
+  if(actx&&actx.state==="suspended")actx.resume().catch(()=>{});
+}
+document.addEventListener("pointerdown",unlockAnalyser);
 
-let waveDirty=true,waveW=0,mpTick=0;
-function drawWave(force){
-  const cv=$("#wave");if(!cv||!ed)return;
-  const r=cv.parentElement.getBoundingClientRect();
-  const dpr=Math.min(2,window.devicePixelRatio||1);
-  const w=Math.max(1,Math.round(r.width)),h=54;
-  // 幅が変わったときだけ作り直す（毎回だと重い）
-  if(w!==waveW){
-    cv.style.width=w+"px";cv.style.height=h+"px";
-    cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);
-    waveW=w;waveDirty=true;
+/* 周波数のビン（谜の力で細かく分かれた生データ）を対数スケールで
+   25列にまとめ直す。低音側を厚めに見せた方がそれっぽく映える */
+function bandEnergies(data,bins,cols){
+  const out=new Array(cols).fill(0);
+  const maxLog=Math.log10(bins);
+  for(let c=0;c<cols;c++){
+    const lo=Math.max(1,Math.floor(Math.pow(10,maxLog*(c/cols))));
+    let hi=Math.max(lo+1,Math.floor(Math.pow(10,maxLog*((c+1)/cols))));
+    hi=Math.min(bins,hi);
+    let sum=0,n=0;
+    for(let i=lo;i<hi;i++){sum+=data[i];n++;}
+    out[c]=n?(sum/n)/255:0;
   }
-  if(!waveDirty&&!force)return;
-  waveDirty=false;
+  return out;
+}
+function drawAnalyzer(){
+  const cv=$("#analyzer");if(!cv)return;
+  const rect=cv.parentElement.getBoundingClientRect();
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const wCss=Math.max(1,Math.round(rect.width));
+  const hCss=230;
+  if(cv.width!==Math.round(wCss*dpr)||cv.height!==Math.round(hCss*dpr)){
+    cv.style.width=wCss+"px";cv.style.height=hCss+"px";
+    cv.width=Math.round(wCss*dpr);cv.height=Math.round(hCss*dpr);
+  }
   const g=cv.getContext("2d");
   g.setTransform(dpr,0,0,dpr,0,0);
-  g.clearRect(0,0,w,h);
+  g.clearRect(0,0,wCss,hCss);
+
+  let energies=new Array(AN_COLS).fill(0);
+  if(analyser&&!vid.paused){
+    analyser.getByteFrequencyData(freqBins);
+    energies=bandEnergies(freqBins,analyser.frequencyBinCount,AN_COLS);
+  }
+  for(let c=0;c<AN_COLS;c++)anPeaks[c]=Math.max(energies[c],anPeaks[c]-0.02);
 
   const cs=getComputedStyle(document.body);
-  const dim=cs.getPropertyValue("--dim").trim()||"#948c82";
   const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
-  const line=cs.getPropertyValue("--line").trim()||"#3a3633";
+  const cut=cs.getPropertyValue("--cut").trim()||"#d9584a";
+  const off=cs.getPropertyValue("--ink3").trim()||"#2a2724";
 
-  if(!waveData){
-    g.strokeStyle=line;g.lineWidth=1;
-    g.beginPath();g.moveTo(0,h/2);g.lineTo(w,h/2);g.stroke();
-    return;
-  }
-  const N=waveData.length,mid=h/2;
-  const inX=ed.dur?(ed.inT/ed.dur)*w:0, outX=ed.dur?(ed.outT/ed.dur)*w:w;
-  for(let x=0;x<w;x++){
-    const v=waveData[Math.min(N-1,Math.floor(x/w*N))];
-    const bar=Math.max(0.7,v*(h/2-2));
-    const inSel=x>=inX&&x<=outX;
-    g.strokeStyle=inSel?amber:dim;
-    g.globalAlpha=inSel?0.95:0.32;
-    g.beginPath();g.moveTo(x+.5,mid-bar);g.lineTo(x+.5,mid+bar);g.stroke();
-  }
-  g.globalAlpha=1;
-  // 無音とみなせる帯を薄く塗る
-  g.fillStyle=line;
-  for(let x=0;x<w;x++){
-    const v=waveData[Math.min(N-1,Math.floor(x/w*N))];
-    if(v<0.04)g.fillRect(x,h-3,1,3);
-  }
-}
-function openEditor(videoId,inT,outT,clipId){
-  const v=VIDEOS.find(v=>v.id===videoId);if(!v)return;
-  const set=()=>{const d=vid.duration||v.dur||0;
-    ed={videoId,dur:d,inT:inT!==undefined?inT:0,outT:outT!==undefined?outT:d,clipId};
-    $("#editWrap").style.display="block";
-    $("#toggleEdit").textContent="再生モードに戻る";$("#toggleEdit").classList.add("pri");
-    document.body.classList.add("editing");
-    drawEd(true);
-    if(waveFor===videoId&&waveData)$("#waveNote").textContent="濃い谷が無音です";
-    else{
-      waveData=null;fineData=null;waveFor=null;
-      $("#waveNote").textContent="波形はまだ出してません";
+  const gap=3;
+  const cw=(wCss-gap*(AN_COLS+1))/AN_COLS;
+  const ch=(hCss-gap*(AN_ROWS+1))/AN_ROWS;
+  for(let c=0;c<AN_COLS;c++){
+    const lit=Math.round(energies[c]*AN_ROWS);
+    const peakRow=Math.min(AN_ROWS-1,Math.round(anPeaks[c]*AN_ROWS));
+    for(let r=0;r<AN_ROWS;r++){
+      const rowFromBottom=AN_ROWS-1-r;
+      const x=gap+c*(cw+gap),y=gap+r*(ch+gap);
+      let color=off;
+      // 音量に応じて下から点灯。上の方（音量が振り切れ気味）は赤めにして
+      // 昔ながらのVUメーターっぽいピーク警告色にする
+      if(rowFromBottom<lit)color=rowFromBottom>=AN_ROWS*0.82?cut:amber;
+      else if(rowFromBottom===peakRow&&peakRow>0)color=amber; // ピークホールドの点
+      g.fillStyle=color;
+      g.fillRect(x,y,cw,ch);
     }
-    $("#waveBtn").style.display=(waveFor===videoId&&waveData)?"none":"block";
-    $("#autoBtn").style.display=(waveFor===videoId&&waveData)?"block":"none";
-  };
-  if(vid.readyState>=1)set();else vid.addEventListener("loadedmetadata",set,{once:true});
-}
-function drawEd(withWave){
-  if(!ed||!ed.dur)return;
-  const bar=$("#splice"),w=bar.clientWidth;
-  const px=t=>Math.max(0,Math.min(w,(t/ed.dur)*w));
-  $("#fIn").style.left=px(ed.inT)+"px";
-  $("#fOut").style.left=px(ed.outT)+"px";
-  $("#sel").style.left=px(ed.inT)+"px";
-  $("#sel").style.width=Math.max(0,px(ed.outT)-px(ed.inT))+"px";
-  $("#ph").style.left=px(vid.currentTime)+"px";
-  $("#tIn").textContent=fmt1(ed.inT);$("#tOut").textContent=fmt1(ed.outT);
-  $("#tLen").textContent=(ed.outT-ed.inT).toFixed(1)+"秒";
-  if(withWave)drawWave(true);
-}
-(function drag(){
-  const bar=$("#splice");let mode=null;
-  const tAt=e=>{const r=bar.getBoundingClientRect();
-    return Math.max(0,Math.min(ed.dur,((e.clientX-r.left)/r.width)*ed.dur));};
-  bar.addEventListener("pointerdown",e=>{
-    if(!ed||!ed.dur)return;
-    e.preventDefault();bar.setPointerCapture(e.pointerId);
-    const r=bar.getBoundingClientRect(),x=e.clientX-r.left;
-    const pIn=(ed.inT/ed.dur)*r.width,pOut=(ed.outT/ed.dur)*r.width;
-    // このバーは IN/OUT 専用。必ず近いほうの旗を掴む（シークはしない）
-    mode=Math.abs(x-pIn)<=Math.abs(x-pOut)?"in":"out";
-    move(e);
-  });
-  bar.addEventListener("pointermove",e=>{if(mode){e.preventDefault();move(e)}});
-  bar.addEventListener("pointerup",()=>mode=null);
-  bar.addEventListener("pointercancel",()=>mode=null);
-  function move(e){
-    const t=tAt(e);
-    if(mode==="in")ed.inT=Math.min(t,ed.outT-0.1);
-    else ed.outT=Math.max(t,ed.inT+0.1);
-    drawEd(true);
   }
+}
+(function analyzerLoop(){
+  drawAnalyzer();
+  requestAnimationFrame(analyzerLoop);
 })();
 
 /* 再生用シークバー（IN/OUTとは完全に独立） */
@@ -1220,131 +986,15 @@ const SPEEDS=[1,1.25,1.5,2,0.5,0.75];let si=0;
 $("#bSpeed").onclick=()=>{si=(si+1)%SPEEDS.length;vid.playbackRate=SPEEDS[si];
   $("#bSpeed").textContent="速度 "+SPEEDS[si].toFixed(2).replace(/0$/,"").replace(/\.$/,"")+"x";};
 
-$("#waveBtn").onclick=async()=>{
-  if(!ed)return;
-  if(waveBusy)return toast("解析中です");
-  $("#waveBtn").style.display="none";
-  const wasPlaying=!vid.paused;
-  vid.pause();                    // 解析中は再生を止めておく
-  await buildWave(ed.videoId,ed.dur);
-  if(wasPlaying)vid.play().catch(()=>{});
-  if(!waveData)$("#waveBtn").style.display="block";
-};
-
-/* ===== 無音を手がかりに自動でトラックを切り分ける ===== */
-const AUTO={quiet:0.02,gap:0.7,minLen:20};  // 音量のしきい値 / 無音の最短 / 1曲の最短（秒）
-
-function detectTracks(){
-  if(!fineData||!ed)return [];
-  const M=fineData.length,dur=ed.dur;
-  const perSec=M/dur;
-  const minGap=Math.max(1,Math.round(AUTO.gap*perSec));
-
-  // 無音が続く区間を拾う
-  const gaps=[];let run=0;
-  for(let i=0;i<M;i++){
-    if(fineData[i]<AUTO.quiet)run++;
-    else{ if(run>=minGap)gaps.push([i-run,i]); run=0; }
-  }
-  if(run>=minGap)gaps.push([M-run,M]);
-
-  // 無音の真ん中を切れ目にする
-  const cuts=[0];
-  gaps.forEach(([a,b])=>{
-    if(a<=0||b>=M)return;                 // 曲の頭と尻の無音は切れ目にしない
-    cuts.push(Math.round((a+b)/2));
-  });
-  cuts.push(M);
-
-  const out=[];
-  for(let i=0;i<cuts.length-1;i++){
-    const s=cuts[i]/perSec,e=cuts[i+1]/perSec;
-    if(e-s<AUTO.minLen)continue;          // 短すぎるものは曲とみなさない
-    out.push([s,e]);
-  }
-  return out;
-}
-
-function autoSplit(){
-  if(!fineData)return toast("先に「音の波形を出す」を押してください");
-  const tr=detectTracks();
-  if(!tr.length)return sheet("自動切り分け",[
-    {label:"曲の区切りが見つかりませんでした\n無音がはっきりしない録音かもしれません",fn:()=>{}},
-    {label:"感度を調整する",fn:()=>autoSettings()},
-  ]);
-  const v=VIDEOS.find(v=>v.id===ed.videoId);
-  const base=v?v.name:"track";
-  sheet(tr.length+"曲に切り分けます",[
-    {label:"見つかった区切り\n"+tr.slice(0,6).map((t,i)=>
-      (i+1)+". "+fmt(t[0])+" → "+fmt(t[1])+"（"+Math.round(t[1]-t[0])+"秒）").join("\n")
-      +(tr.length>6?"\n… ほか"+(tr.length-6)+"曲":""),fn:()=>{}},
-    {label:"この区切りでクリップを作る",fn:async()=>{
-      let n=0;
-      for(let i=0;i<tr.length;i++){
-        const c={id:uid(),videoId:ed.videoId,
-          name:base+" #"+String(i+1).padStart(2,"0"),
-          start:tr[i][0],end:tr[i][1],thumb:null,createdAt:Date.now()+i};
-        await put("clips",c);n++;
-        toast("作成中… "+n+"/"+tr.length);
-      }
-      await reload();toast(n+"曲のクリップを作りました");go("clip");
-    }},
-    {label:"感度を調整してやり直す",fn:()=>autoSettings()},
-  ]);
-}
-
-function autoSettings(){
-  sheet("自動切り分けの感度",[
-    {label:"無音の判定を厳しく（大きめの音も無音扱い）\nいま: "+AUTO.quiet,
-     fn:()=>{AUTO.quiet=Math.min(0.12,AUTO.quiet*1.8);autoSplit()}},
-    {label:"無音の判定をゆるく（本当に静かな所だけ）\nいま: "+AUTO.quiet,
-     fn:()=>{AUTO.quiet=Math.max(0.004,AUTO.quiet/1.8);autoSplit()}},
-    {label:"曲間の無音を短めに見る\nいま: "+AUTO.gap+"秒",
-     fn:()=>{AUTO.gap=Math.max(0.2,AUTO.gap-0.3);autoSplit()}},
-    {label:"曲間の無音を長めに見る\nいま: "+AUTO.gap+"秒",
-     fn:()=>{AUTO.gap=Math.min(3,AUTO.gap+0.3);autoSplit()}},
-    {label:"1曲の最短を短く\nいま: "+AUTO.minLen+"秒",
-     fn:()=>{AUTO.minLen=Math.max(3,AUTO.minLen-10);autoSplit()}},
-    {label:"1曲の最短を長く\nいま: "+AUTO.minLen+"秒",
-     fn:()=>{AUTO.minLen=Math.min(300,AUTO.minLen+10);autoSplit()}},
-    {label:"いまの設定で切り分ける",fn:()=>autoSplit()},
-  ]);
-}
-$("#autoBtn").onclick=()=>autoSplit();
-$("#toggleEdit").onclick=()=>{
-  const w=$("#editWrap"),onNow=w.style.display!=="none";
-  if(onNow){w.style.display="none";$("#toggleEdit").textContent="切り出しモードにする";
-    $("#toggleEdit").classList.remove("pri");document.body.classList.remove("editing");}
-  else{
-    const it=queue[qi];if(!it)return toast("先に曲を選んでください");
-    openEditor(it.videoId,it.start||0,it.end||undefined);
-    $("#toggleEdit").textContent="再生モードに戻る";$("#toggleEdit").classList.add("pri");
-  }
-};
-$("#setIn").onclick=()=>{if(!ed)return;ed.inT=Math.min(vid.currentTime,ed.outT-0.1);drawEd(true)};
-$("#setOut").onclick=()=>{if(!ed)return;ed.outT=Math.max(vid.currentTime,ed.inT+0.1);drawEd(true)};
-$("#prevSel").onclick=()=>{if(!ed)return;
-  queue=[{kind:"clip",videoId:ed.videoId,title:"（試聴）",start:ed.inT,end:ed.outT}];qi=0;
-  vid.currentTime=ed.inT;vid.play().catch(()=>{});};
-$("#saveClip").onclick=()=>{
-  if(!ed)return;const v=VIDEOS.find(v=>v.id===ed.videoId);
-  sheetInput("クリップ名","例）サビのとこ",(v?v.name:"clip")+" 切り出し",async n=>{
-    const c={id:ed.clipId||uid(),videoId:ed.videoId,name:n,
-      start:ed.inT,end:ed.outT,createdAt:Date.now()};
-    await put("clips",c);await reload();
-    toast("クリップを保存しました");go("clip");});
-};
-
 /* ============ boot ============ */
 async function reload(){
-  [VIDEOS,CLIPS,PLAYLISTS]=await Promise.all([all("videos"),all("clips"),all("playlists")]);
-  renderLib();renderClips();renderPl();
+  [VIDEOS,PLAYLISTS]=await Promise.all([all("videos"),all("playlists")]);
+  renderLib();renderPl();
   if(navigator.storage&&navigator.storage.estimate){
     const e=await navigator.storage.estimate();
     $("#quota").textContent=mb(e.usage||0)+" 使用中";
   }
 }
-window.addEventListener("resize",()=>ed&&drawEd(true));
 openDB().then(reload).then(syncBtns).then(mediaSetup).catch(e=>{
   document.body.innerHTML='<p style="padding:40px;color:#e8a33d;font-family:sans-serif">保存領域が使えませんでした。Safariのプライベートブラウズを解除してから開き直してください。<br><br>'+e+'</p>';
 });
