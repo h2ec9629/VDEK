@@ -97,12 +97,7 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .empty b{display:block;color:var(--fg);font-size:14px;margin-bottom:6px}
 
 /* ---- now playing ---- */
-#stage{background:#000;position:relative}
-#vid{width:100%;display:block;background:#000;max-height:44vh;object-fit:contain}
-/* 切り出しモード中は映像を畳んで、波形に集中させる */
-body.editing #vid{max-height:0;opacity:0}
-body.editing #stage{height:0;overflow:hidden}
-#npTitle{font-size:16px;font-weight:700;margin:14px 0 2px}
+#npTitle{font-size:16px;font-weight:700;margin:18px 0 2px}
 #npSrc{font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:14px}
 
 /* ---- 再生用シークバー（左右に余白を取って端を押しやすく） ---- */
@@ -215,8 +210,8 @@ input[type=text]{
     <div class="eyebrow">ライブラリ</div>
     <div class="row" style="margin-bottom:14px">
       <label class="btn pri" style="flex:1">
-        動画を取り込む
-        <input type="file" id="pick" accept="video/*" multiple hidden>
+        曲を取り込む
+        <input type="file" id="pick" accept="audio/*" multiple hidden>
       </label>
       <button class="btn" id="fixAll">調べ直す</button>
     </div>
@@ -237,10 +232,10 @@ input[type=text]{
   </section>
 
   <!-- NOW PLAYING / EDITOR -->
-  <section class="pane" id="pane-now" style="padding:0">
-    <div id="stage"><video id="vid" playsinline webkit-playsinline preload="metadata"></video></div>
-    <div style="padding:14px">
-      <div id="npTitle">再生中の動画はありません</div>
+  <section class="pane" id="pane-now">
+    <audio id="vid" preload="metadata"></audio>
+    <div>
+      <div id="npTitle">再生中の曲はありません</div>
       <div id="npSrc">ライブラリから選んでください</div>
 
       <!-- 再生用シークバー（IN/OUTとは完全に別物） -->
@@ -292,7 +287,7 @@ input[type=text]{
           <button class="btn pri wide" id="saveClip">この範囲をクリップとして保存</button>
         </div>
         <p class="hint" style="margin-top:12px">
-          クリップは「元動画＋開始/終了の位置」として保存されます。元ファイルは1本のまま増えないので、容量を食いません。
+          クリップは「元曲＋開始/終了の位置」として保存されます。元ファイルは1本のまま増えないので、容量を食いません。
         </p>
       </div>
 
@@ -375,9 +370,9 @@ function sheetInput(title,ph,val,fn){
 function closeSheet(){$("#sheet").classList.remove("on");$("#veil").classList.remove("on");}
 $("#veil").onclick=closeSheet;
 
-/* 動画を取り込み直すと中身のIDが変わり、
+/* 曲を取り込み直すと中身のIDが変わり、
    クリップや再生リストが古いIDを指したまま迷子になる。
-   名前を手がかりに、いまある動画へ貼り替える。
+   名前を手がかりに、いまある曲へ貼り替える。
    切り出した位置（開始/終了）はそのまま残るので、作業のやり直しは不要。 */
 async function relink(){
   const norm=s=>String(s||"").toLowerCase().replace(/[\s_\-.\u3000]/g,"");
@@ -385,11 +380,11 @@ async function relink(){
   const byName=new Map();
   VIDEOS.forEach(v=>{const k=norm(v.name);if(!byName.has(k))byName.set(k,v.id)});
 
-  // 迷子のクリップを、名前が一致する動画へ貼り替える
+  // 迷子のクリップを、名前が一致する曲へ貼り替える
   let fixC=0,lostC=0;
   for(const c of CLIPS){
     if(byId.has(c.videoId))continue;
-    // クリップ名は「元動画名 切り出し」の形が多いので、そこから元動画名を拾う
+    // クリップ名は「元曲名 切り出し」の形が多いので、そこから元曲名を拾う
     const base=norm(String(c.name).replace(/\s*切り出し\s*$/,""));
     let id=byName.get(base);
     if(!id){
@@ -399,7 +394,7 @@ async function relink(){
     else lostC++;
   }
 
-  // 再生リストの中で、消えたクリップ/動画を指している項目を数える
+  // 再生リストの中で、消えたクリップ/曲を指している項目を数える
   let fixP=0,lostP=0;
   const clipIds=new Set(CLIPS.map(c=>c.id));
   for(const p of PLAYLISTS){
@@ -414,7 +409,7 @@ async function relink(){
   await reload();
   sheet("修復しました",[
     "貼り替えたクリップ\n"+fixC+" 件（切り出し位置はそのまま）",
-    "貼り替えられなかったクリップ\n"+lostC+" 件"+(lostC?"（元動画が見つかりません）":""),
+    "貼り替えられなかったクリップ\n"+lostC+" 件"+(lostC?"（元曲が見つかりません）":""),
     "手直しした再生リスト\n"+fixP+" 件",
     "リストから外した項目\n"+lostP+" 件",
   ].map(t=>({label:t,fn:()=>{}})));
@@ -431,7 +426,7 @@ function carDiag(){
     "曲情報の窓口\n"+(ms?"使えます":"使えません（このブラウザは未対応）"),
     "ステアリング操作の受け口\n"+handlers,
     "ナビに送っている曲名\n"+(meta?meta.title:"未設定"),
-    "ナビに送っている元動画名\n"+(meta&&meta.artist?meta.artist:"未設定"),
+    "ナビに送っている元曲名\n"+(meta&&meta.artist?meta.artist:"未設定"),
     "ジャケット画像\n"+(meta&&meta.artwork&&meta.artwork.length?"送っています":"なし（サムネ未設定）"),
     "再生状態\n"+((ms&&navigator.mediaSession.playbackState)||"未設定"),
     "音量\n"+Math.round(vid.volume*100)+"%"+(vid.muted?"（消音中）":""),
@@ -464,7 +459,7 @@ $("#brand").onclick=()=>{
       sheet("保存状況",[
         "使用中\n"+mb(usage),
         "使える上限（目安）\n"+(quota?mb(quota):"不明"),
-        "動画 / クリップ / リスト\n"+VIDEOS.length+" / "+CLIPS.length+" / "+PLAYLISTS.length+" 件",
+        "曲 / クリップ / リスト\n"+VIDEOS.length+" / "+CLIPS.length+" / "+PLAYLISTS.length+" 件",
         "保存されている かけら\n"+chunks+" 個",
       ].map(t=>({label:t,fn:()=>{}})));
     }},
@@ -495,7 +490,7 @@ $("#pick").onchange=async e=>{
   }
   await reload();
   if(!added.length){report(ng,0);return;}
-  // 第2段階：保存が済んでから長さとサムネを調べる（失敗しても動画は残る）
+  // 第2段階：保存が済んでから長さとサムネを調べる（失敗しても曲は残る）
   toast(added.length+"本 保存しました。長さを調べます…");
   for(const id of added){
     const rec=await one("videos",id);
@@ -507,7 +502,7 @@ $("#pick").onchange=async e=>{
 const CHUNK=8*1048576;
 let lastErr="";
 async function store(f){
-  const id=uid(),type=f.type||"video/mp4";
+  const id=uid(),type=f.type||"audio/mpeg";
   const n=Math.max(1,Math.ceil(f.size/CHUNK));
   lastErr="";
   try{
@@ -531,7 +526,7 @@ async function store(f){
    かけらを1個ずつ継ぎ足すと、そのたびに全体を作り直すことになって
    本数の二乗ぶんの手間がかかる（重すぎる）。
    かといって、全部のかけらを一気に配列へ貯めてから１回で渡すと、
-   1〜3GBクラスの動画では「かけら全部ぶんの生データ」が一瞬メモリに
+   1〜3GBクラスの曲では「かけら全部ぶんの生データ」が一瞬メモリに
    乗ってしまい、iPhoneのSafariごと落ちる（強制終了→ホーム画面）原因になる。
    → 少数（16個＝約128MB）ずつまとめて継ぎ足す方式にして、
      重さとメモリ使用量の両方を抑える。 */
@@ -548,14 +543,14 @@ async function blobOf(rec){
       if(!c)return null;
       batch.push(c.data);
       if(batch.length>=BLOB_BATCH||i===rec.chunks-1){
-        acc=acc?new Blob([acc,...batch],{type:rec.type||"video/mp4"})
-             :new Blob(batch,{type:rec.type||"video/mp4"});
+        acc=acc?new Blob([acc,...batch],{type:rec.type||"audio/mpeg"})
+             :new Blob(batch,{type:rec.type||"audio/mpeg"});
         batch=[]; // ここで貯めてた生データを手放す（メモリを返す）
       }
     }
     b=acc;
   }
-  else if(rec.data)b=new Blob([rec.data],{type:rec.type||"video/mp4"});
+  else if(rec.data)b=new Blob([rec.data],{type:rec.type||"audio/mpeg"});
   else b=rec.blob||null;
   blobCache={id:rec.id,blob:b};
   return b;
@@ -576,45 +571,6 @@ function report(ng,ok){
           if(await store(f))c++;}
         await reload();toast(c+"本 強制的に入れました");}},
       {label:"（"+ok+"本は取り込めました）",fn:()=>{}}]));
-}
-/* mp4の箱構造をたどって、先頭8〜16バイトだけ読む */
-async function readBox(blob,off){
-  const buf=await blob.slice(off,off+16).arrayBuffer();
-  if(buf.byteLength<8)return null;
-  const d=new DataView(buf);
-  let size=d.getUint32(0),hs=8;
-  const type=String.fromCharCode(d.getUint8(4),d.getUint8(5),d.getUint8(6),d.getUint8(7));
-  if(size===1){if(buf.byteLength<16)return null;size=Number(d.getBigUint64(8));hs=16;}
-  else if(size===0)size=blob.size-off;
-  return {size,type,hs};
-}
-/* mvhd に書いてある「本当の長さ」を読む。再生不要・一瞬で終わる */
-async function mp4Duration(blob){
-  try{
-    let off=0;
-    while(off<blob.size){
-      const b=await readBox(blob,off);
-      if(!b||b.size<8)return 0;
-      if(b.type==="moov"){
-        let o=off+b.hs;const end=off+b.size;
-        while(o<end){
-          const c=await readBox(blob,o);
-          if(!c||c.size<8)return 0;
-          if(c.type==="mvhd"){
-            const d=new DataView(await blob.slice(o+c.hs,o+c.hs+32).arrayBuffer());
-            const ver=d.getUint8(0);
-            const ts=ver===1?d.getUint32(20):d.getUint32(12);
-            const du=ver===1?Number(d.getBigUint64(24)):d.getUint32(16);
-            return ts>0?du/ts:0;
-          }
-          o+=c.size;
-        }
-        return 0;
-      }
-      off+=b.size;
-    }
-  }catch(_){}
-  return 0;
 }
 
 function seekTo(v,t){return new Promise(r=>{
@@ -639,11 +595,9 @@ function trueDuration(v){return new Promise(r=>{
 
 function probe(src){
   return new Promise(res=>{
-    const u=URL.createObjectURL(src),v=document.createElement("video");
-    v.muted=true;v.defaultMuted=true;v.playsInline=true;
-    v.setAttribute("playsinline","");v.setAttribute("webkit-playsinline","");
-    v.preload="auto";
-    v.style.cssText="position:fixed;left:-9999px;top:0;width:4px;height:4px;opacity:0.01;pointer-events:none";
+    const u=URL.createObjectURL(src),v=document.createElement("audio");
+    v.muted=true;v.defaultMuted=true;v.preload="auto";
+    v.style.cssText="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
     document.body.appendChild(v);
     let f=false;
     const fin=r=>{if(f)return;f=true;clearTimeout(to);
@@ -651,30 +605,20 @@ function probe(src){
       URL.revokeObjectURL(u);v.removeAttribute("src");
       try{v.load()}catch(_){}
       v.remove();res(r);};
-    const to=setTimeout(()=>fin({dur:0,thumb:null,err:"timeout"}),45000);
-    v.onerror=()=>fin({dur:0,thumb:null,err:(v.error&&v.error.code===4)?"codec":"read"});
+    const to=setTimeout(()=>fin({dur:0,err:"timeout"}),45000);
+    v.onerror=()=>fin({dur:0,err:(v.error&&v.error.code===4)?"codec":"read"});
     v.onloadedmetadata=async()=>{
       try{
         try{await v.play()}catch(_){}          // iOSにデコードさせる
-        let dur=await mp4Duration(src);         // 設計図から読む（速い・正確）
-        if(!dur||!isFinite(dur))dur=await trueDuration(v);  // ダメなら実測に落とす
-        const t=dur>0?Math.min(dur*0.1,5):0;
-        await seekTo(v,t);
+        let dur=await trueDuration(v);          // 実測で長さを取る
         try{v.pause()}catch(_){}
-        let thumb=null;
-        try{
-          const w=320,h=Math.round(w*((v.videoHeight/v.videoWidth)||0.5625))||180;
-          const c=document.createElement("canvas");c.width=w;c.height=h;
-          c.getContext("2d").drawImage(v,0,0,w,h);
-          const d=c.toDataURL("image/jpeg",.6);
-          if(d&&d.length>2000)thumb=d;          // 真っ黒は捨てる
-        }catch(_){}
-        fin({dur,thumb});
-      }catch(_){fin({dur:0,thumb:null,err:"read"})}
+        fin({dur});
+      }catch(_){fin({dur:0,err:"read"})}
     };
     v.src=u;
   });
 }
+
 
 /* 保存されたデータが本当に揃っているか数える */
 async function diagnose(rec){
@@ -705,7 +649,6 @@ async function repair(rec,quiet){
   if(!quiet)toast("調べ直してます… "+rec.name);
   const p=await probe(b);
   if(p.dur)rec.dur=p.dur;
-  if(p.thumb)rec.thumb=p.thumb;
   await put("videos",rec);
   if(!quiet){await reload();toast(p.dur?"長さ "+fmt(p.dur)+" に修正":"読み取れませんでした")}
 }
@@ -717,7 +660,6 @@ $("#fixAll").onclick=async()=>{
     toast("調べ直し中… "+v.name);
     const p=await probe(b);
     if(p.dur)v.dur=p.dur;
-    if(p.thumb)v.thumb=p.thumb;
     await put("videos",v);
   }
   await reload();toast("全部やり直しました");
@@ -726,7 +668,8 @@ $("#fixAll").onclick=async()=>{
 /* ============ render ============ */
 function cardEl(o){
   const d=document.createElement("div");d.className="card";
-  d.innerHTML=(o.thumb?'<img class="thumb" src="'+o.thumb+'">':'<div class="thumb ph">NO IMG</div>')+
+  const noImg='<div class="thumb ph"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
+  d.innerHTML=(o.thumb?'<img class="thumb" src="'+o.thumb+'">':noImg)+
     '<div class="meta"><div class="ttl"></div><div class="sub2"></div></div><button class="more">...</button>';
   d.querySelector(".ttl").textContent=o.title;
   d.querySelector(".sub2").textContent=o.sub;
@@ -737,7 +680,7 @@ function cardEl(o){
 }
 function renderLib(){
   const w=$("#libList");w.innerHTML="";
-  if(!VIDEOS.length){w.innerHTML='<div class="empty"><b>まだ動画がありません</b>上の「動画を取り込む」から写真アプリやファイルの動画を選んでください。</div>';return;}
+  if(!VIDEOS.length){w.innerHTML='<div class="empty"><b>まだ何もありません</b>上の「曲を取り込む」からmp3などを選んでください。</div>';return;}
   VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt).forEach(v=>{
     w.appendChild(cardEl({thumb:v.thumb,title:v.name,sub:fmt(v.dur)+" · "+mb(v.size)+(v.data||v.chunks?"":" · 要 再取込"),
       tap:()=>{playQueue([{kind:"video",videoId:v.id,title:v.name,start:0,end:null}],0);openEditor(v.id);},
@@ -756,22 +699,21 @@ function renderLib(){
 }
 function renderClips(){
   const w=$("#clipList");w.innerHTML="";
-  if(!CLIPS.length){w.innerHTML='<div class="empty"><b>クリップがありません</b>ライブラリの動画を開いて、IN と OUT を決めれば作れます。</div>';return;}
+  if(!CLIPS.length){w.innerHTML='<div class="empty"><b>クリップがありません</b>ライブラリの曲を開いて、IN と OUT を決めれば作れます。</div>';return;}
   CLIPS.slice().sort((a,b)=>b.createdAt-a.createdAt).forEach(c=>{
     const v=VIDEOS.find(v=>v.id===c.videoId);if(!v)return;
-    w.appendChild(cardEl({thumb:c.thumb||v.thumb,title:c.name,sub:(c.end-c.start).toFixed(1)+"秒 · "+v.name,
+    w.appendChild(cardEl({thumb:null,title:c.name,sub:(c.end-c.start).toFixed(1)+"秒 · "+v.name,
       tap:()=>playQueue([clipItem(c)],0),
       menu:()=>sheet(c.name,[
         {label:"再生する",fn:()=>playQueue([clipItem(c)],0)},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"clip",refId:c.id})},
         {label:"範囲を編集しなおす",fn:()=>{playQueue([clipItem(c)],0);openEditor(c.videoId,c.start,c.end,c.id);}},
-        {label:"サムネを変える",fn:()=>thumbMenu(c)},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",c.name,async n=>{c.name=n;await put("clips",c);await reload();})},
         {label:"削除する",danger:true,fn:async()=>{await del("clips",c.id);await reload();toast("削除しました")}}
       ])}));
   });
 }
-const clipItem=c=>({kind:"clip",videoId:c.videoId,title:c.name,start:c.start,end:c.end,thumb:c.thumb});
+const clipItem=c=>({kind:"clip",videoId:c.videoId,title:c.name,start:c.start,end:c.end});
 
 function renderPl(){
   const w=$("#plList");w.innerHTML="";
@@ -833,7 +775,7 @@ function startPlaylist(p,sh){
   const q=p.items.map(resolve).filter(Boolean);
   if(!q.length){
     return toast(p.items.length
-      ? "中の曲が見つかりません（元動画が消えています）"
+      ? "中の曲が見つかりません（元曲が消えています）"
       : "このリストは空です");
   }
   if(sh!==undefined){shuffle=sh;syncBtns();}
@@ -899,14 +841,14 @@ async function load(auto){
     const v=await one("videos",it.videoId);
     if(!v){
       if(++skipGuard>=queue.length){skipGuard=0;
-        return toast("このリストの動画が見つかりません");}
+        return toast("このリストの曲が見つかりません");}
       return next();
     }
     if(curURL)URL.revokeObjectURL(curURL);
     const b=await blobOf(v);
     if(!b||!b.size){
       if(++skipGuard>=queue.length){skipGuard=0;
-        return toast("動画データが壊れています。取り込み直してください");}
+        return toast("曲データが壊れています。取り込み直してください");}
       return next();
     }
     skipGuard=0;
@@ -917,9 +859,17 @@ async function load(auto){
   document.body.classList.remove("editing");
   $("#toggleEdit").textContent="切り出しモードにする";$("#toggleEdit").classList.remove("pri");
   const v=VIDEOS.find(v=>v.id===it.videoId);
-  $("#npSrc").textContent=(it.kind==="clip"?"クリップ · 元 "+(v?v.name:"?"):"元動画")+" · "+fmt1(it.start)+(it.end?" → "+fmt1(it.end):"");
+  $("#npSrc").textContent=(it.kind==="clip"?"クリップ · 元 "+(v?v.name:"?"):"元曲")+" · "+fmt1(it.start)+(it.end?" → "+fmt1(it.end):"");
   mediaInfo(it);
-  const seek=()=>{try{vid.currentTime=it.start||0}catch(_){}; if(auto)vid.play().catch(()=>toast("再生ボタンを押してください"));};
+  // 巨大な曲の深い位置までシークすると、iPhone側が内部で再バッファして
+  // loadedmetadataをもう一度発火させることがある。onloadedmetadata=seek のままだと
+  // そのたびに頭出し処理が再実行され「頭に巻き戻る→少し再生→また巻き戻る」を繰り返す。
+  // 一度実行したら必ず窓口を外して、以降のloadedmetadataでは反応しないようにする。
+  const seek=()=>{
+    vid.onloadedmetadata=null;
+    try{vid.currentTime=it.start||0}catch(_){}
+    if(auto)vid.play().catch(()=>toast("再生ボタンを押してください"));
+  };
   if(vid.readyState>=1)seek();else vid.onloadedmetadata=seek;
   renderQueue();
 }
@@ -936,7 +886,7 @@ function prev(){
   if(it&&vid.currentTime-(it.start||0)>3)return vid.currentTime=it.start||0;
   if(qi>0){qi--;load(true);}else if(it){vid.currentTime=it.start||0;}
 }
-$("#bPlay").onclick=()=>{if(!queue.length)return toast("動画を選んでください");vid.paused?vid.play().catch(()=>{}):vid.pause();};
+$("#bPlay").onclick=()=>{if(!queue.length)return toast("曲を選んでください");vid.paused?vid.play().catch(()=>{}):vid.pause();};
 $("#bNext").onclick=next;$("#bPrev").onclick=prev;
 $("#bShuffle").onclick=()=>{shuffle=!shuffle;syncBtns();toast(shuffle?"ランダム ON":"ランダム OFF")};
 $("#bRepeat").onclick=()=>{repeat=repeat==="off"?"all":repeat==="all"?"one":"off";syncBtns();
@@ -1107,7 +1057,7 @@ async function buildWave(videoId,dur){
     const m=(e&&e.message)||String(e);
     note.textContent=
       m==="no-audio"?"このブラウザは音の解析に対応してません":
-      m==="no-data" ?"元動画のデータが見つかりません":
+      m==="no-data" ?"元曲のデータが見つかりません":
       m==="timeout" ?"解析に時間がかかりすぎました":
       /memory|allocat/i.test(m)?"音が大きすぎて解析できませんでした":
       "波形を出せません（"+m+"）";
@@ -1351,7 +1301,7 @@ $("#toggleEdit").onclick=()=>{
   if(onNow){w.style.display="none";$("#toggleEdit").textContent="切り出しモードにする";
     $("#toggleEdit").classList.remove("pri");document.body.classList.remove("editing");}
   else{
-    const it=queue[qi];if(!it)return toast("先に動画を選んでください");
+    const it=queue[qi];if(!it)return toast("先に曲を選んでください");
     openEditor(it.videoId,it.start||0,it.end||undefined);
     $("#toggleEdit").textContent="再生モードに戻る";$("#toggleEdit").classList.add("pri");
   }
@@ -1361,78 +1311,14 @@ $("#setOut").onclick=()=>{if(!ed)return;ed.outT=Math.max(vid.currentTime,ed.inT+
 $("#prevSel").onclick=()=>{if(!ed)return;
   queue=[{kind:"clip",videoId:ed.videoId,title:"（試聴）",start:ed.inT,end:ed.outT}];qi=0;
   vid.currentTime=ed.inT;vid.play().catch(()=>{});};
-/* 指定位置のコマを取り出してサムネにする */
-async function grabFrame(blob,t){
-  return new Promise(res=>{
-    const u=URL.createObjectURL(blob),v=document.createElement("video");
-    v.muted=true;v.defaultMuted=true;v.playsInline=true;
-    v.setAttribute("playsinline","");v.setAttribute("webkit-playsinline","");
-    v.preload="auto";
-    v.style.cssText="position:fixed;left:-9999px;top:0;width:4px;height:4px;opacity:.01;pointer-events:none";
-    document.body.appendChild(v);
-    let f=false;
-    const fin=r=>{if(f)return;f=true;clearTimeout(to);
-      try{v.pause()}catch(_){}
-      URL.revokeObjectURL(u);v.removeAttribute("src");
-      try{v.load()}catch(_){}
-      v.remove();res(r);};
-    const to=setTimeout(()=>fin(null),20000);
-    v.onerror=()=>fin(null);
-    v.onloadedmetadata=async()=>{
-      try{
-        try{await v.play()}catch(_){}
-        await seekTo(v,Math.max(0,t));
-        try{v.pause()}catch(_){}
-        const w=320,h=Math.round(w*((v.videoHeight/v.videoWidth)||0.5625))||180;
-        const c=document.createElement("canvas");c.width=w;c.height=h;
-        c.getContext("2d").drawImage(v,0,0,w,h);
-        const d=c.toDataURL("image/jpeg",.6);
-        fin(d&&d.length>2000?d:null);
-      }catch(_){fin(null)}
-    };
-    v.src=u;
-  });
-}
-
 $("#saveClip").onclick=()=>{
   if(!ed)return;const v=VIDEOS.find(v=>v.id===ed.videoId);
   sheetInput("クリップ名","例）サビのとこ",(v?v.name:"clip")+" 切り出し",async n=>{
     const c={id:ed.clipId||uid(),videoId:ed.videoId,name:n,
-      start:ed.inT,end:ed.outT,thumb:null,createdAt:Date.now()};
-    // IN位置のコマをサムネにする
-    toast("サムネを作ってます…");
-    try{
-      const rec=await one("videos",ed.videoId);
-      const b=await blobOf(rec);
-      if(b)c.thumb=await grabFrame(b,ed.inT);
-    }catch(_){}
+      start:ed.inT,end:ed.outT,createdAt:Date.now()};
     await put("clips",c);await reload();
-    toast(c.thumb?"クリップを保存しました":"保存しました（サムネは作れず）");go("clip");});
+    toast("クリップを保存しました");go("clip");});
 };
-
-/* クリップのサムネを好きな位置で取り直す */
-async function reshoot(c,t){
-  const rec=await one("videos",c.videoId);
-  const b=await blobOf(rec);
-  if(!b)return toast("元動画がありません");
-  toast("サムネを作ってます…");
-  const d=await grabFrame(b,t);
-  if(!d)return toast("うまく取れませんでした");
-  c.thumb=d;await put("clips",c);await reload();toast("サムネを更新しました");
-}
-function thumbMenu(c){
-  const len=c.end-c.start;
-  sheet("サムネにする位置： "+c.name,[
-    {label:"IN の位置（"+fmt1(c.start)+"）",fn:()=>reshoot(c,c.start)},
-    {label:"少し後ろ（IN +1秒）",fn:()=>reshoot(c,Math.min(c.end-0.1,c.start+1))},
-    {label:"真ん中（"+fmt1(c.start+len/2)+"）",fn:()=>reshoot(c,c.start+len/2)},
-    {label:"OUT の直前（"+fmt1(Math.max(c.start,c.end-0.3))+"）",fn:()=>reshoot(c,Math.max(c.start,c.end-0.3))},
-    {label:"いま再生している位置",fn:()=>{
-      const t=vid.currentTime;
-      if(!isFinite(t))return toast("再生位置が分かりません");
-      reshoot(c,t);}},
-  ]);
-}
 
 /* ============ boot ============ */
 async function reload(){
@@ -1450,4 +1336,3 @@ openDB().then(reload).then(syncBtns).then(mediaSetup).catch(e=>{
 </script>
 </body>
 </html>
-
