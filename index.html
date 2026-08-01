@@ -31,6 +31,22 @@ body{
   display:flex;flex-direction:column;
   -webkit-text-size-adjust:100%;
 }
+#sideAnalyzer{display:none}
+#mainCol{display:flex;flex-direction:column;flex:1;min-height:0;width:100%}
+
+/* ---- 横画面：左に偽アナライザーを固定、右にいつも通りの画面を並べる ---- */
+@media (orientation:landscape){
+  body{flex-direction:row}
+  #sideAnalyzer{
+    display:flex;align-items:center;justify-content:center;
+    width:42%;max-width:440px;flex:none;padding:16px;
+    background:var(--ink2);border-right:1px solid var(--line);
+  }
+  #sideAnalyzer canvas{width:100%;display:block}
+  #mainCol{flex:1;min-width:0}
+  /* NOW画面の中にも同じ模様を出すと横画面では二重になるので隠す */
+  .analyzerWrap{display:none}
+}
 button,input,select{font:inherit;color:inherit}
 button{background:none;border:0;padding:0;cursor:pointer}
 
@@ -176,6 +192,9 @@ input[type=text]{
 </head>
 <body>
 
+<div id="sideAnalyzer"><canvas id="analyzer2"></canvas></div>
+<div id="mainCol">
+
 <header>
   <h1 id="brand">VDECK</h1>
   <span class="sub">v1</span>
@@ -234,6 +253,8 @@ input[type=text]{
   <button data-p="pl"><svg viewBox="0 0 24 24"><path d="M3 6h12M3 11h12M3 16h7"/><circle cx="17" cy="17" r="3"/><path d="M20 17V8l3 1"/></svg>LISTS</button>
   <button data-p="now"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.8v6.4l5-3.2z" fill="currentColor" stroke="none"/></svg>NOW</button>
 </nav>
+
+</div>
 
 <div id="veil"></div>
 <div id="sheet"></div>
@@ -664,11 +685,8 @@ function startPlaylist(p,sh){
 }
 
 /* 車のステアリングスイッチ・Bluetooth機器・ロック画面からの操作を受ける */
-/* 画面を消して戻したときに窓口が外れることがあるので張り直す。
-   バックグラウンドに回るとiPhone側がAudioContextを勝手に止めることがあるので、
-   隠れる時・戻る時の両方でresume()を試みておく */
+/* 画面を消して戻したときに窓口が外れることがあるので張り直す */
 document.addEventListener("visibilitychange",()=>{
-  if(actx&&actx.state==="suspended")actx.resume().catch(()=>{});
   if(!document.hidden){
     mediaSetup();mediaState();mediaPos();
     const it=queue[qi];if(it)mediaInfo(it);
@@ -748,7 +766,6 @@ async function load(auto){
   }
   $("#miniTitle").textContent=it.title;
   mediaInfo(it);
-  ensureAnalyser();
   // 巨大な曲の深い位置までシークすると、iPhone側が内部で再バッファして
   // loadedmetadataをもう一度発火させることがある。onloadedmetadata=seek のままだと
   // そのたびに頭出し処理が再実行され「頭に巻き戻る→少し再生→また巻き戻る」を繰り返す。
@@ -810,70 +827,24 @@ $("#tBar").onclick=e=>{
   vid.currentTime=s+(en-s)*p;
 };
 
-/* ===== アナライザー（オレンジのドットマトリクスで音を可視化） ===== */
+/* ===== 偽アナライザー（音は一切拾わない、見た目だけの演出） =====
+   昔のWindows Media Playerのビジュアライザーみたいに、模様が回転・拡散する
+   動きを時間経過だけで作る。AudioContextやcaptureStreamを一切使わないので、
+   Safari非対応もバックグラウンド再生への影響も、タップで音がおかしくなる
+   不具合も、そもそも原理的に起こりようがない */
 let mpTick=0;
-let actx=null,analyser=null,srcNode=null,freqBins=null;
 const AN_COLS=23,AN_ROWS=25;
-let anPeaks=new Array(AN_COLS).fill(0);
+let anT=0;
 
-/* 重要：音の出口には一切触らない。
-   前のバージョンはcreateMediaElementSource(vid)で<audio>本体の出力そのものを
-   AudioContext経由に付け替えていたが、これをやるとiPhoneがバックグラウンドで
-   容赦なくAudioContextを止めてくる（＝音も止まる）うえ、タップのたびに
-   resume()が挟まることで一瞬の二重再生・位相ズレが起き、それが「速度が
-   変わったように聞こえる」謎の力の原因になっていたと考えられる。
-   captureStream()で音を「覗き見」するだけの別ルートを作り、
-   <audio>本体は今まで通り直接鳴らす。これで両方の不具合を断つ */
-function ensureAnalyser(){
-  if(actx||analyser)return;
-  const AC=window.AudioContext||window.webkitAudioContext;
-  if(!AC)return;
-  try{
-    let stream=null;
-    if(vid.captureStream)stream=vid.captureStream();
-    else if(vid.mozCaptureStream)stream=vid.mozCaptureStream();
-    if(!stream||!stream.getAudioTracks||!stream.getAudioTracks().length)return; // 対応してなければ諦める。バックグラウンド再生を優先する
-    actx=new AC();
-    srcNode=actx.createMediaStreamSource(stream);
-    analyser=actx.createAnalyser();
-    analyser.fftSize=2048;
-    analyser.smoothingTimeConstant=0.8;
-    srcNode.connect(analyser);
-    // destinationへは繋がない＝ここでは音を出さない。あくまで覗き見専用
-    freqBins=new Uint8Array(analyser.frequencyBinCount);
-  }catch(_){actx=null;analyser=null;srcNode=null;}
-}
-/* 画面のどこかをタップした瞬間にアナライザー用のAudioContextを
-   再開しておく。ここは覗き見専用なので、失敗しても音自体には影響しない */
-function unlockAnalyser(){
-  if(actx&&actx.state==="suspended")actx.resume().catch(()=>{});
-}
-document.addEventListener("pointerdown",unlockAnalyser);
-
-/* 周波数のビン（谜の力で細かく分かれた生データ）を対数スケールで
-   25列にまとめ直す。低音側を厚めに見せた方がそれっぽく映える */
-function bandEnergies(data,bins,cols){
-  const out=new Array(cols).fill(0);
-  const maxLog=Math.log10(bins);
-  for(let c=0;c<cols;c++){
-    const lo=Math.max(1,Math.floor(Math.pow(10,maxLog*(c/cols))));
-    let hi=Math.max(lo+1,Math.floor(Math.pow(10,maxLog*((c+1)/cols))));
-    hi=Math.min(bins,hi);
-    let sum=0,n=0;
-    for(let i=lo;i<hi;i++){sum+=data[i];n++;}
-    out[c]=n?(sum/n)/255:0;
-  }
-  return out;
-}
-function drawAnalyzer(){
-  const cv=$("#analyzer");if(!cv)return;
+function drawFakeAnalyzer(cv){
+  if(!cv)return;
   const rect=cv.parentElement.getBoundingClientRect();
   const dpr=Math.min(2,window.devicePixelRatio||1);
   const wCss=Math.max(1,Math.round(rect.width));
-  if(wCss<=1)return; // 非表示タブ中は幅が取れないので描かない
+  if(wCss<=1)return; // 非表示中は幅が取れないので描かない
 
   // ドットを正方形にするため、まず横幅からマス目の一辺を決め、
-  // 縦の長さはその一辺×行数で後から決める（縦横で別计算にしない）
+  // 縦の長さはその一辺×行数で後から決める
   const gap=3;
   const cell=(wCss-gap*(AN_COLS+1))/AN_COLS;
   const hCss=Math.round(cell*AN_ROWS+gap*(AN_ROWS+1));
@@ -886,36 +857,43 @@ function drawAnalyzer(){
   g.setTransform(dpr,0,0,dpr,0,0);
   g.clearRect(0,0,wCss,hCss);
 
-  let energies=new Array(AN_COLS).fill(0);
-  if(analyser&&!vid.paused){
-    analyser.getByteFrequencyData(freqBins);
-    energies=bandEnergies(freqBins,analyser.frequencyBinCount,AN_COLS);
-  }
-  for(let c=0;c<AN_COLS;c++)anPeaks[c]=Math.max(energies[c],anPeaks[c]-0.02);
+  // 実際は幅ぴったりに収まる計算だが、端数のズレで右や左に寄って
+  // 見えないよう、余り分を左右均等に振り分けて中央寄せする
+  const totalW=AN_COLS*cell+(AN_COLS+1)*gap;
+  const offX=(wCss-totalW)/2;
 
   const cs=getComputedStyle(document.body);
   const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
   const cut=cs.getPropertyValue("--cut").trim()||"#d9584a";
   const off=cs.getPropertyValue("--ink3").trim()||"#2a2724";
 
-  for(let c=0;c<AN_COLS;c++){
-    const lit=Math.round(energies[c]*AN_ROWS);
-    const peakRow=Math.min(AN_ROWS-1,Math.round(anPeaks[c]*AN_ROWS));
-    for(let r=0;r<AN_ROWS;r++){
-      const rowFromBottom=AN_ROWS-1-r;
-      const x=gap+c*(cell+gap),y=gap+r*(cell+gap);
+  const cx=(AN_COLS-1)/2, cy=(AN_ROWS-1)/2;
+  const maxR=Math.sqrt(cx*cx+cy*cy)||1;
+  const speed=vid.paused?0.2:1; // 止まってる時はゆっくりに落として控えめにする
+
+  for(let row=0;row<AN_ROWS;row++){
+    for(let col=0;col<AN_COLS;col++){
+      const nx=(col-cx)/maxR, ny=(row-cy)/maxR;
+      const r=Math.sqrt(nx*nx+ny*ny);
+      const ang=Math.atan2(ny,nx);
+      // 波を3つ重ねて、回転しながら広がる模様にする
+      let v=Math.sin(r*9-anT*2.4*speed)
+           +Math.sin(ang*4+anT*1.3*speed)
+           +Math.sin(r*5+ang*2-anT*1.7*speed);
+      v=(v/3+1)/2; // 0〜1に正規化
+      const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
       let color=off;
-      // 音量に応じて下から点灯。上の方（音量が振り切れ気味）は赤めにして
-      // 昔ながらのVUメーターっぽいピーク警告色にする
-      if(rowFromBottom<lit)color=rowFromBottom>=AN_ROWS*0.82?cut:amber;
-      else if(rowFromBottom===peakRow&&peakRow>0)color=amber; // ピークホールドの点
+      if(v>0.72)color=cut;
+      else if(v>0.42)color=amber;
       g.fillStyle=color;
       g.fillRect(x,y,cell,cell);
     }
   }
 }
 (function analyzerLoop(){
-  drawAnalyzer();
+  anT+=0.016;
+  drawFakeAnalyzer($("#analyzer"));
+  drawFakeAnalyzer($("#analyzer2"));
   requestAnimationFrame(analyzerLoop);
 })();
 
@@ -928,16 +906,9 @@ async function reload(){
     $("#quota").textContent=mb(e.usage||0)+" 使用中";
   }
 }
-openDB().then(reload).then(syncBtns).then(mediaSetup).then(ensureAnalyser).catch(e=>{
+openDB().then(reload).then(syncBtns).then(mediaSetup).catch(e=>{
   document.body.innerHTML='<p style="padding:40px;color:#e8a33d;font-family:sans-serif">保存領域が使えませんでした。Safariのプライベートブラウズを解除してから開き直してください。<br><br>'+e+'</p>';
 });
-/* バックグラウンドに回ると音がAudioContextごと止まることがあるので、
-   再生中なのに止まっていたら1秒おきに再開を試みる（見張り番）。
-   音を鳴らしているタブはブラウザ側もタイマーを間引かない扱いにしてくれるので、
-   バックグラウンド中もこの見張りは働き続ける */
-setInterval(()=>{
-  if(!vid.paused&&actx&&actx.state==="suspended")actx.resume().catch(()=>{});
-},1000);
 </script>
 </body>
 </html>
