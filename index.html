@@ -683,10 +683,10 @@ function renderLib(){
   if(!VIDEOS.length){w.innerHTML='<div class="empty"><b>まだ何もありません</b>上の「曲を取り込む」からmp3などを選んでください。</div>';return;}
   VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt).forEach(v=>{
     w.appendChild(cardEl({thumb:v.thumb,title:v.name,sub:fmt(v.dur)+" · "+mb(v.size)+(v.data||v.chunks?"":" · 要 再取込"),
-      tap:()=>{playQueue([{kind:"video",videoId:v.id,title:v.name,start:0,end:null}],0);openEditor(v.id);},
+      tap:()=>{playLibraryFrom(v.id);openEditor(v.id);},
       menu:()=>sheet(v.name,[
-        {label:"再生する",fn:()=>playQueue([{kind:"video",videoId:v.id,title:v.name,start:0,end:null}],0)},
-        {label:"切り出しエディタを開く",fn:()=>{playQueue([{kind:"video",videoId:v.id,title:v.name,start:0,end:null}],0);openEditor(v.id);}},
+        {label:"再生する",fn:()=>playLibraryFrom(v.id)},
+        {label:"切り出しエディタを開く",fn:()=>{playLibraryFrom(v.id);openEditor(v.id);}},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"video",refId:v.id})},
         {label:"長さとサムネを調べ直す",fn:()=>repair(v)},
         {label:"診断する（データが揃ってるか）",fn:()=>diagnose(v)},
@@ -703,17 +703,17 @@ function renderClips(){
   CLIPS.slice().sort((a,b)=>b.createdAt-a.createdAt).forEach(c=>{
     const v=VIDEOS.find(v=>v.id===c.videoId);if(!v)return;
     w.appendChild(cardEl({thumb:null,title:c.name,sub:(c.end-c.start).toFixed(1)+"秒 · "+v.name,
-      tap:()=>playQueue([clipItem(c)],0),
+      tap:()=>playClipsFrom(c.id),
       menu:()=>sheet(c.name,[
-        {label:"再生する",fn:()=>playQueue([clipItem(c)],0)},
+        {label:"再生する",fn:()=>playClipsFrom(c.id)},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"clip",refId:c.id})},
-        {label:"範囲を編集しなおす",fn:()=>{playQueue([clipItem(c)],0);openEditor(c.videoId,c.start,c.end,c.id);}},
+        {label:"範囲を編集しなおす",fn:()=>{playClipsFrom(c.id);openEditor(c.videoId,c.start,c.end,c.id);}},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",c.name,async n=>{c.name=n;await put("clips",c);await reload();})},
         {label:"削除する",danger:true,fn:async()=>{await del("clips",c.id);await reload();toast("削除しました")}}
       ])}));
   });
 }
-const clipItem=c=>({kind:"clip",videoId:c.videoId,title:c.name,start:c.start,end:c.end});
+const clipItem=c=>({kind:"clip",videoId:c.videoId,title:c.name,start:c.start,end:c.end,clipId:c.id});
 
 function renderPl(){
   const w=$("#plList");w.innerHTML="";
@@ -834,6 +834,21 @@ function mediaPos(){
     position:Math.max(0,Math.min(dur,vid.currentTime-s))});}catch(_){}
 }
 function playQueue(q,i){queue=q;qi=i;go("now");load(true);}
+/* ライブラリから曲を選んだとき、その1曲だけでなくライブラリ全体を
+   キューにする。これで次へ/前へ/シャッフル/リピートが効くようになる。
+   並び順は一覧の表示順（新しく取り込んだ順）に合わせる */
+function playLibraryFrom(videoId){
+  const q=VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt)
+    .map(v=>({kind:"video",videoId:v.id,title:v.name,start:0,end:null}));
+  const i=q.findIndex(it=>it.videoId===videoId);
+  playQueue(q,i>=0?i:0);
+}
+/* クリップも同様。クリップ一覧全体をキューにする */
+function playClipsFrom(clipId){
+  const q=CLIPS.slice().sort((a,b)=>b.createdAt-a.createdAt).map(clipItem);
+  const i=q.findIndex(it=>it.clipId===clipId);
+  playQueue(q,i>=0?i:0);
+}
 let skipGuard=0;
 async function load(auto){
   const it=queue[qi];if(!it)return;
