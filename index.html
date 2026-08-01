@@ -100,6 +100,7 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .analyzerWrap{
   margin:18px 0 4px;padding:14px;border-radius:14px;
   background:var(--ink2);border:1px solid var(--line);
+  overflow:hidden;
 }
 .analyzerWrap .cap{
   font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
@@ -211,7 +212,6 @@ input[type=text]{
         <canvas id="analyzer"></canvas>
       </div>
 
-      <div id="queueWrap" style="margin-top:22px"></div>
     </div>
   </section>
 </main>
@@ -366,7 +366,12 @@ function go(p){
   $$(".pane").forEach(s=>s.classList.remove("on"));
   const pane=$("#pane-"+p);
   if(pane){pane.classList.add("on");
-    const m=$("main");if(m)m.scrollTop=0;}
+    const m=$("main");
+    if(m){
+      m.scrollTop=0;
+      // NOW画面（アナライザーのみ）はスクロールが起きないようにする
+      m.style.overflowY=(p==="now")?"hidden":"auto";
+    }}
 }
 $$("nav button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.p)));
 
@@ -754,7 +759,6 @@ async function load(auto){
     if(auto)vid.play().catch(()=>toast("再生ボタンを押してください"));
   };
   if(vid.readyState>=1)seek();else vid.onloadedmetadata=seek;
-  renderQueue();
 }
 function next(){
   if(repeat==="one")return load(true);
@@ -805,46 +809,42 @@ $("#tBar").onclick=e=>{
   const p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
   vid.currentTime=s+(en-s)*p;
 };
-function renderQueue(){
-  const w=$("#queueWrap");
-  if(queue.length<2){w.innerHTML="";return;}
-  w.innerHTML='<div class="eyebrow">次に流れるもの</div>';
-  queue.forEach((it,i)=>{
-    const d=document.createElement("div");d.className="card";
-    d.innerHTML='<div class="meta"><div class="ttl"></div><div class="sub2"></div></div>';
-    d.querySelector(".ttl").textContent=(i===qi?"再生中  ":"")+it.title;
-    d.querySelector(".ttl").style.color=i===qi?"var(--amber)":"";
-    d.querySelector(".sub2").textContent=it.end?(it.end-it.start).toFixed(1)+"秒":"フル";
-    d.onclick=()=>{qi=i;load(true)};w.appendChild(d);
-  });
-}
 
 /* ===== アナライザー（オレンジのドットマトリクスで音を可視化） ===== */
 let mpTick=0;
 let actx=null,analyser=null,srcNode=null,freqBins=null;
-const AN_COLS=25,AN_ROWS=25;
+const AN_COLS=23,AN_ROWS=25;
 let anPeaks=new Array(AN_COLS).fill(0);
 
-/* AudioContextの生成自体はいつでもできるが、iPhoneはユーザー操作（タップ）の
-   中でresume()しないと音が出ない仕組みになっている。
-   生成はここで済ませておき、実際の許可は下のタップ検知でもらう */
+/* 重要：音の出口には一切触らない。
+   前のバージョンはcreateMediaElementSource(vid)で<audio>本体の出力そのものを
+   AudioContext経由に付け替えていたが、これをやるとiPhoneがバックグラウンドで
+   容赦なくAudioContextを止めてくる（＝音も止まる）うえ、タップのたびに
+   resume()が挟まることで一瞬の二重再生・位相ズレが起き、それが「速度が
+   変わったように聞こえる」謎の力の原因になっていたと考えられる。
+   captureStream()で音を「覗き見」するだけの別ルートを作り、
+   <audio>本体は今まで通り直接鳴らす。これで両方の不具合を断つ */
 function ensureAnalyser(){
-  if(actx)return;
+  if(actx||analyser)return;
   const AC=window.AudioContext||window.webkitAudioContext;
   if(!AC)return;
   try{
+    let stream=null;
+    if(vid.captureStream)stream=vid.captureStream();
+    else if(vid.mozCaptureStream)stream=vid.mozCaptureStream();
+    if(!stream||!stream.getAudioTracks||!stream.getAudioTracks().length)return; // 対応してなければ諦める。バックグラウンド再生を優先する
     actx=new AC();
-    srcNode=actx.createMediaElementSource(vid);
+    srcNode=actx.createMediaStreamSource(stream);
     analyser=actx.createAnalyser();
     analyser.fftSize=2048;
     analyser.smoothingTimeConstant=0.8;
     srcNode.connect(analyser);
-    analyser.connect(actx.destination);
+    // destinationへは繋がない＝ここでは音を出さない。あくまで覗き見専用
     freqBins=new Uint8Array(analyser.frequencyBinCount);
-  }catch(_){actx=null;analyser=null;}
+  }catch(_){actx=null;analyser=null;srcNode=null;}
 }
-/* 画面のどこかをタップした瞬間に解錠しておく。これでiPhoneの
-   自動再生制限（ユーザー操作なしに音を出せない）に引っかからない */
+/* 画面のどこかをタップした瞬間にアナライザー用のAudioContextを
+   再開しておく。ここは覗き見専用なので、失敗しても音自体には影響しない */
 function unlockAnalyser(){
   if(actx&&actx.state==="suspended")actx.resume().catch(()=>{});
 }
