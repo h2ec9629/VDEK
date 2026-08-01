@@ -96,21 +96,7 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 }
 .empty b{display:block;color:var(--fg);font-size:14px;margin-bottom:6px}
 
-/* ---- now playing ---- */
-#npTitle{font-size:16px;font-weight:700;margin:18px 0 2px}
-#npSrc{font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:14px}
-
-/* ---- 再生用シークバー（左右に余白を取って端を押しやすく） ---- */
-.seekwrap{margin-top:16px}
-.seekpad{padding:0 22px;height:40px;display:flex;align-items:center;touch-action:none}
-.seektrack{position:relative;width:100%;height:6px;border-radius:3px;background:var(--ink3)}
-.seekfill{position:absolute;left:0;top:0;height:100%;border-radius:3px;background:var(--amber);width:0}
-.seekknob{position:absolute;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
-  background:var(--fg);border:2px solid var(--ink);left:0;box-shadow:0 1px 4px rgba(0,0,0,.5)}
-.tc{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--dim)}
-.tc b{color:var(--fg);font-weight:600}
-
-/* ---- analyzer（ドットマトリクス風スペクトラム） ---- */
+/* ---- analyzer（ドットマトリクス風スペクトラム・正方形ドット） ---- */
 .analyzerWrap{
   margin:18px 0 4px;padding:14px;border-radius:14px;
   background:var(--ink2);border:1px solid var(--line);
@@ -119,7 +105,7 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
   font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
   margin-bottom:10px;text-transform:uppercase;
 }
-#analyzer{display:block;width:100%;height:230px}
+#analyzer{display:block;width:100%}
 
 /* ---- transport ---- */
 #transport{
@@ -220,25 +206,6 @@ input[type=text]{
   <section class="pane" id="pane-now">
     <audio id="vid" preload="metadata"></audio>
     <div>
-      <div id="npTitle">再生中の曲はありません</div>
-      <div id="npSrc">ライブラリから選んでください</div>
-
-      <!-- 再生用シークバー（IN/OUTとは完全に別物） -->
-      <div class="seekwrap" id="seekWrap">
-        <div class="seekpad">
-          <div class="seektrack"><div class="seekfill" id="seekFill"></div>
-            <div class="seekknob" id="seekKnob"></div></div>
-        </div>
-        <div class="tc"><b id="sNow">0:00</b><span id="sLeft">-0:00</span></div>
-        <div class="row" style="justify-content:center;gap:8px;margin-top:2px">
-          <button class="btn sm" id="b15b">15秒 戻す</button>
-          <button class="btn sm" id="b5b">5秒 戻す</button>
-          <button class="btn sm" id="bSpeed">速度 1.0x</button>
-          <button class="btn sm" id="b5f">5秒 送る</button>
-          <button class="btn sm" id="b15f">15秒 送る</button>
-        </div>
-      </div>
-
       <div class="analyzerWrap">
         <div class="cap">analyzer</div>
         <canvas id="analyzer"></canvas>
@@ -692,8 +659,11 @@ function startPlaylist(p,sh){
 }
 
 /* 車のステアリングスイッチ・Bluetooth機器・ロック画面からの操作を受ける */
-/* 画面を消して戻したときに窓口が外れることがあるので張り直す */
+/* 画面を消して戻したときに窓口が外れることがあるので張り直す。
+   バックグラウンドに回るとiPhone側がAudioContextを勝手に止めることがあるので、
+   隠れる時・戻る時の両方でresume()を試みておく */
 document.addEventListener("visibilitychange",()=>{
+  if(actx&&actx.state==="suspended")actx.resume().catch(()=>{});
   if(!document.hidden){
     mediaSetup();mediaState();mediaPos();
     const it=queue[qi];if(it)mediaInfo(it);
@@ -771,8 +741,7 @@ async function load(auto){
     skipGuard=0;
     curURL=URL.createObjectURL(b);curVid=it.videoId;vid.src=curURL;vid.load();
   }
-  $("#npTitle").textContent=it.title;$("#miniTitle").textContent=it.title;
-  $("#npSrc").textContent="元曲 · "+fmt1(it.start);
+  $("#miniTitle").textContent=it.title;
   mediaInfo(it);
   ensureAnalyser();
   // 巨大な曲の深い位置までシークすると、iPhone側が内部で再バッファして
@@ -828,7 +797,6 @@ vid.ontimeupdate=()=>{
   const p=e>s?((vid.currentTime-s)/(e-s))*100:0;
   $("#tFill").style.width=Math.max(0,Math.min(100,p))+"%";
   $("#miniTime").textContent=fmt(vid.currentTime-s)+" / "+fmt(e-s);
-  drawSeek();
   if((mpTick=(mpTick+1)%8)===0)mediaPos();
 };
 $("#tBar").onclick=e=>{
@@ -902,7 +870,14 @@ function drawAnalyzer(){
   const rect=cv.parentElement.getBoundingClientRect();
   const dpr=Math.min(2,window.devicePixelRatio||1);
   const wCss=Math.max(1,Math.round(rect.width));
-  const hCss=230;
+  if(wCss<=1)return; // 非表示タブ中は幅が取れないので描かない
+
+  // ドットを正方形にするため、まず横幅からマス目の一辺を決め、
+  // 縦の長さはその一辺×行数で後から決める（縦横で別计算にしない）
+  const gap=3;
+  const cell=(wCss-gap*(AN_COLS+1))/AN_COLS;
+  const hCss=Math.round(cell*AN_ROWS+gap*(AN_ROWS+1));
+
   if(cv.width!==Math.round(wCss*dpr)||cv.height!==Math.round(hCss*dpr)){
     cv.style.width=wCss+"px";cv.style.height=hCss+"px";
     cv.width=Math.round(wCss*dpr);cv.height=Math.round(hCss*dpr);
@@ -923,22 +898,19 @@ function drawAnalyzer(){
   const cut=cs.getPropertyValue("--cut").trim()||"#d9584a";
   const off=cs.getPropertyValue("--ink3").trim()||"#2a2724";
 
-  const gap=3;
-  const cw=(wCss-gap*(AN_COLS+1))/AN_COLS;
-  const ch=(hCss-gap*(AN_ROWS+1))/AN_ROWS;
   for(let c=0;c<AN_COLS;c++){
     const lit=Math.round(energies[c]*AN_ROWS);
     const peakRow=Math.min(AN_ROWS-1,Math.round(anPeaks[c]*AN_ROWS));
     for(let r=0;r<AN_ROWS;r++){
       const rowFromBottom=AN_ROWS-1-r;
-      const x=gap+c*(cw+gap),y=gap+r*(ch+gap);
+      const x=gap+c*(cell+gap),y=gap+r*(cell+gap);
       let color=off;
       // 音量に応じて下から点灯。上の方（音量が振り切れ気味）は赤めにして
       // 昔ながらのVUメーターっぽいピーク警告色にする
       if(rowFromBottom<lit)color=rowFromBottom>=AN_ROWS*0.82?cut:amber;
       else if(rowFromBottom===peakRow&&peakRow>0)color=amber; // ピークホールドの点
       g.fillStyle=color;
-      g.fillRect(x,y,cw,ch);
+      g.fillRect(x,y,cell,cell);
     }
   }
 }
@@ -946,45 +918,6 @@ function drawAnalyzer(){
   drawAnalyzer();
   requestAnimationFrame(analyzerLoop);
 })();
-
-/* 再生用シークバー（IN/OUTとは完全に独立） */
-(function seekBar(){
-  const pad=$(".seekpad"),tr=$(".seektrack");let on=false;
-  const apply=e=>{
-    const it=queue[qi];if(!it)return;
-    const r=tr.getBoundingClientRect();
-    const s=it.start||0,en=it.end||vid.duration||0;
-    const p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-    try{vid.currentTime=s+(en-s)*p}catch(_){}
-    drawSeek();
-  };
-  pad.addEventListener("pointerdown",e=>{e.preventDefault();on=true;pad.setPointerCapture(e.pointerId);apply(e)});
-  pad.addEventListener("pointermove",e=>{if(on){e.preventDefault();apply(e)}});
-  pad.addEventListener("pointerup",()=>on=false);
-  pad.addEventListener("pointercancel",()=>on=false);
-})();
-function drawSeek(){
-  const it=queue[qi];if(!it)return;
-  const s=it.start||0,en=it.end||vid.duration||0;
-  const cur=Math.max(0,vid.currentTime-s),len=Math.max(0,en-s);
-  const p=len>0?Math.min(1,cur/len):0;
-  $("#seekFill").style.width=(p*100)+"%";
-  $("#seekKnob").style.left=(p*100)+"%";
-  $("#sNow").textContent=fmt(cur);
-  $("#sLeft").textContent="-"+fmt(len-cur);
-}
-function nudge(sec){
-  const it=queue[qi];if(!it)return;
-  const s=it.start||0,en=it.end||vid.duration||0;
-  vid.currentTime=Math.max(s,Math.min(en-0.1,vid.currentTime+sec));
-}
-$("#b15b").onclick=()=>nudge(-15);
-$("#b5b").onclick =()=>nudge(-5);
-$("#b5f").onclick =()=>nudge(5);
-$("#b15f").onclick=()=>nudge(15);
-const SPEEDS=[1,1.25,1.5,2,0.5,0.75];let si=0;
-$("#bSpeed").onclick=()=>{si=(si+1)%SPEEDS.length;vid.playbackRate=SPEEDS[si];
-  $("#bSpeed").textContent="速度 "+SPEEDS[si].toFixed(2).replace(/0$/,"").replace(/\.$/,"")+"x";};
 
 /* ============ boot ============ */
 async function reload(){
@@ -995,9 +928,16 @@ async function reload(){
     $("#quota").textContent=mb(e.usage||0)+" 使用中";
   }
 }
-openDB().then(reload).then(syncBtns).then(mediaSetup).catch(e=>{
+openDB().then(reload).then(syncBtns).then(mediaSetup).then(ensureAnalyser).catch(e=>{
   document.body.innerHTML='<p style="padding:40px;color:#e8a33d;font-family:sans-serif">保存領域が使えませんでした。Safariのプライベートブラウズを解除してから開き直してください。<br><br>'+e+'</p>';
 });
+/* バックグラウンドに回ると音がAudioContextごと止まることがあるので、
+   再生中なのに止まっていたら1秒おきに再開を試みる（見張り番）。
+   音を鳴らしているタブはブラウザ側もタイマーを間引かない扱いにしてくれるので、
+   バックグラウンド中もこの見張りは働き続ける */
+setInterval(()=>{
+  if(!vid.paused&&actx&&actx.state==="suspended")actx.resume().catch(()=>{});
+},1000);
 </script>
 </body>
 </html>
