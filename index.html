@@ -39,10 +39,16 @@ body{
 @media (orientation:landscape){
   body{flex-direction:row}
   #sideAnalyzer{
-    display:flex;align-items:center;justify-content:center;
+    display:flex;flex-direction:column;justify-content:center;
     width:42%;max-width:440px;flex:none;padding:16px;
     background:var(--ink2);border-right:1px solid var(--line);
   }
+  #sideAnalyzer .cap{
+    font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
+    margin-bottom:10px;text-transform:uppercase;
+    display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
+  }
+  #sideAnalyzer .cap .sw{color:var(--amber)}
   #sideAnalyzer canvas{width:100%;display:block;cursor:pointer}
   #mainCol{flex:1;min-width:0}
   /* NOW画面の中にも同じ模様を出すと横画面では二重になるので隠す */
@@ -122,8 +128,14 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .analyzerWrap .cap{
   font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
   margin-bottom:10px;text-transform:uppercase;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
 }
+.analyzerWrap .cap .sw{color:var(--amber)}
 #analyzer{display:block;width:100%;cursor:pointer}
+#bgVid,#bgVid2{width:100%;display:none;border-radius:8px;cursor:pointer;background:#000}
+/* 動画モードの時はcanvasを隠して動画を出す */
+.analyzerWrap.videoMode #analyzer,#sideAnalyzer.videoMode #analyzer2{display:none}
+.analyzerWrap.videoMode #bgVid,#sideAnalyzer.videoMode #bgVid2{display:block}
 
 /* ---- transport ---- */
 #transport{
@@ -193,7 +205,13 @@ input[type=text]{
 </head>
 <body>
 
-<div id="sideAnalyzer"><canvas id="analyzer2"></canvas></div>
+<input type="file" id="pickBgVideo" accept="video/*" hidden>
+
+<div id="sideAnalyzer">
+  <div class="cap">analyzer<span class="sw" id="anSwitch2">⇄ 動画</span></div>
+  <canvas id="analyzer2"></canvas>
+  <video id="bgVid2" muted loop playsinline></video>
+</div>
 <div id="mainCol">
 
 <header>
@@ -228,8 +246,9 @@ input[type=text]{
     <audio id="vid" preload="metadata"></audio>
     <div>
       <div class="analyzerWrap">
-        <div class="cap">analyzer</div>
+        <div class="cap">analyzer<span class="sw" id="anSwitch">⇄ 動画</span></div>
         <canvas id="analyzer"></canvas>
+        <video id="bgVid" muted loop playsinline></video>
       </div>
 
     </div>
@@ -264,10 +283,10 @@ input[type=text]{
 <script>
 "use strict";
 /* ============ storage ============ */
-const DBN="vdeck",DBV=2;let db;
+const DBN="vdeck",DBV=3;let db;
 function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DBN,DBV);
  r.onupgradeneeded=e=>{const d=e.target.result;
-  ["videos","clips","playlists","chunks"].forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:"id"})});};
+  ["videos","clips","playlists","chunks","bgvideo"].forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:"id"})});};
  r.onsuccess=e=>{db=e.target.result;res()};r.onerror=()=>rej(r.error);});}
 function tx(s,m){return db.transaction(s,m).objectStore(s);}
 function put(s,v){return new Promise((res,rej)=>{const r=tx(s,"readwrite").put(v);r.onsuccess=()=>res(v);r.onerror=()=>rej(r.error);});}
@@ -356,6 +375,7 @@ $("#brand").onclick=()=>{
     {label:"再読み込み",fn:()=>location.reload()},
     {label:"迷子のリストを修復する",fn:()=>relink()},
     {label:"車での再生を診断する",fn:()=>carDiag()},
+    {label:"背景動画を選ぶ／変える",fn:()=>$("#pickBgVideo").click()},
     {label:"強制更新（キャッシュを捨てて最新を取得）",fn:async()=>{
       try{
         if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));}
@@ -419,6 +439,13 @@ $("#pick").onchange=async e=>{
   }
   await reload();
   if(ng.length)report(ng,added.length);else toast(added.length+"本 取り込みました");
+};
+$("#pickBgVideo").onchange=async e=>{
+  const f=e.target.files[0];e.target.value="";
+  if(!f)return;
+  toast("背景動画を保存中…");
+  const ok=await storeBgVideo(f);
+  if(ok){await loadBgVideo();toast("背景動画を更新しました。アナライザーの「⇄ 動画」で切り替えられます");}
 };
 const CHUNK=8*1048576;
 let lastErr="";
@@ -807,7 +834,14 @@ function syncBtns(){
   $("#icPlay").innerHTML=vid.paused?IC_PLAY:IC_PAUSE;
   $("#bPlay").setAttribute("aria-label",vid.paused?"再生":"一時停止");
 }
-vid.onplay=vid.onpause=()=>{syncBtns();mediaState();mediaPos();};
+vid.onplay=vid.onpause=()=>{
+  syncBtns();mediaState();mediaPos();
+  // 背景動画は音声に合わせて再生・一時停止する（動画モードの時だけ）
+  if(anMode==="video"){
+    if(vid.paused){$("#bgVid").pause();$("#bgVid2").pause();}
+    else{$("#bgVid").play().catch(()=>{});$("#bgVid2").play().catch(()=>{});}
+  }
+};
 vid.onended=next;
 vid.onerror=()=>{const c=vid.error&&vid.error.code;
   toast(c===4?"iPhoneが再生できない形式です":c===3?"デコード失敗（形式が特殊です）":
@@ -827,6 +861,69 @@ $("#tBar").onclick=e=>{
   const p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
   vid.currentTime=s+(en-s)*p;
 };
+
+/* ===== ドット偽アナライザー / 背景動画 の切り替え =====
+   固定の1本の動画（音無し・ループ）を保存しておき、ドット演出と
+   タップで切り替えられるようにする。動画は音声とは完全に別物で、
+   ミュートしたまま流すだけの背景演出 */
+let anMode="dots";
+let bgVideoURL=null;
+function setAnMode(mode){
+  if(mode==="video"&&!$("#bgVid").src){
+    toast("先にVDECKメニューから背景動画を選んでください");
+    return;
+  }
+  anMode=mode;
+  const on=mode==="video";
+  $(".analyzerWrap").classList.toggle("videoMode",on);
+  $("#sideAnalyzer").classList.toggle("videoMode",on);
+  const label="⇄ "+(on?"ドット":"動画");
+  $("#anSwitch").textContent=label;
+  $("#anSwitch2").textContent=label;
+  if(on){
+    if(!vid.paused){$("#bgVid").play().catch(()=>{});$("#bgVid2").play().catch(()=>{});}
+  }else{
+    $("#bgVid").pause();$("#bgVid2").pause();
+  }
+}
+$$(".analyzerWrap .cap, #sideAnalyzer .cap").forEach(el=>{
+  el.onclick=()=>setAnMode(anMode==="dots"?"video":"dots");
+});
+
+/* 背景動画の保存（既存のチャンク保存の仕組みをそのまま流用） */
+async function storeBgVideo(f){
+  const old=await one("bgvideo","main");
+  if(old&&old.chunks)for(let i=0;i<old.chunks;i++){try{await del("chunks","main:"+i)}catch(_){}}
+  const type=f.type||"video/mp4";
+  const n=Math.max(1,Math.ceil(f.size/CHUNK));
+  try{
+    for(let i=0;i<n;i++){
+      const buf=await f.slice(i*CHUNK,Math.min(f.size,(i+1)*CHUNK)).arrayBuffer();
+      await put("chunks",{id:"main:"+i,data:buf});
+      if(n>4&&i%3===0)toast("背景動画 保存中 "+Math.round((i+1)/n*100)+"%");
+    }
+    await put("bgvideo",{id:"main",name:f.name,type,size:f.size,chunks:n,addedAt:Date.now()});
+    return true;
+  }catch(err){
+    for(let i=0;i<n;i++){try{await del("chunks","main:"+i)}catch(_){}}
+    toast("背景動画の保存に失敗しました");
+    return false;
+  }
+}
+async function loadBgVideo(){
+  try{
+    const rec=await one("bgvideo","main");
+    if(!rec)return;
+    const b=await blobOf(rec);
+    if(!b)return;
+    if(bgVideoURL)URL.revokeObjectURL(bgVideoURL);
+    bgVideoURL=URL.createObjectURL(b);
+    $("#bgVid").src=bgVideoURL;
+    $("#bgVid2").src=bgVideoURL;
+  }catch(_){}
+}
+$("#bgVid").addEventListener("click",togglePlay);
+$("#bgVid2").addEventListener("click",togglePlay);
 
 /* ===== 偽アナライザー（音は一切拾わない、見た目だけの演出） =====
    ランダムに選んだ60個のドットがクロードオレンジに点灯し、3秒かけて
@@ -961,7 +1058,7 @@ async function reload(){
     $("#quota").textContent=mb(e.usage||0)+" 使用中";
   }
 }
-openDB().then(reload).then(syncBtns).then(mediaSetup).catch(e=>{
+openDB().then(reload).then(syncBtns).then(mediaSetup).then(loadBgVideo).catch(e=>{
   document.body.innerHTML='<p style="padding:40px;color:#e8a33d;font-family:sans-serif">保存領域が使えませんでした。Safariのプライベートブラウズを解除してから開き直してください。<br><br>'+e+'</p>';
 });
 </script>
