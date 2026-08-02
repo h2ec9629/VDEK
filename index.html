@@ -310,8 +310,19 @@ let tT;function toast(m){const e=$("#toast");e.textContent=m;e.classList.add("on
 /* ============ sheet ============ */
 function sheet(title,opts){
   const s=$("#sheet");s.innerHTML="<h3>"+title+"</h3>";
-  opts.forEach(o=>{const b=document.createElement("button");b.className="opt"+(o.danger?" danger":"");
-    b.textContent=o.label;b.onclick=()=>{closeSheet();setTimeout(o.fn,180)};s.appendChild(b);});
+  opts.forEach(o=>{
+    // ファイル選択を伴う項目は、label forでinputに直結させる。
+    // setTimeout経由で.click()するとiPhone Safariではユーザー操作との
+    // 同期が切れて、ファイル選択ダイアログが開かない（これが今回の不具合の原因）
+    if(o.isLabelFor){
+      const l=document.createElement("label");l.className="opt";
+      l.setAttribute("for",o.isLabelFor);l.textContent=o.label;
+      l.onclick=()=>setTimeout(closeSheet,50);
+      s.appendChild(l);return;
+    }
+    const b=document.createElement("button");b.className="opt"+(o.danger?" danger":"");
+    b.textContent=o.label;b.onclick=()=>{closeSheet();setTimeout(o.fn,180)};s.appendChild(b);
+  });
   const c=document.createElement("button");c.className="opt";c.textContent="キャンセル";c.onclick=closeSheet;s.appendChild(c);
   $("#veil").classList.add("on");requestAnimationFrame(()=>s.classList.add("on"));
 }
@@ -375,7 +386,7 @@ $("#brand").onclick=()=>{
     {label:"再読み込み",fn:()=>location.reload()},
     {label:"迷子のリストを修復する",fn:()=>relink()},
     {label:"車での再生を診断する",fn:()=>carDiag()},
-    {label:"背景動画を選ぶ／変える",fn:()=>$("#pickBgVideo").click()},
+    {label:"背景動画を選ぶ／変える",isLabelFor:"pickBgVideo"},
     {label:"強制更新（キャッシュを捨てて最新を取得）",fn:async()=>{
       try{
         if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));}
@@ -938,7 +949,7 @@ const AN_TOTAL=AN_COLS*AN_ROWS;
 let anT=0;
 
 const SPARK_DUR=3;     // 点灯から消えるまでの秒数
-const SPARK_COUNT=60;  // 1回の点灯で光らせるドット数
+const SPARK_COUNT=40;  // 1回の点灯で光らせるドット数
 const GROUP_GAP=1;     // グループごとのスタートずらし（秒）
 // 3グループぶん、次に発火する時刻と現在光っているドットを管理する
 const sparkGroups=[0,1,2].map(i=>({nextFire:i*GROUP_GAP,sparks:[]}));
