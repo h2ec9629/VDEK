@@ -34,6 +34,10 @@ body{
 }
 #sideAnalyzer{display:none}
 #mainCol{display:flex;flex-direction:column;flex:1;min-height:0;width:100%}
+.analyzerWrap{display:none}
+.analyzerWrap.on{display:block}
+.videoStage{display:none}
+.videoStage.on{display:block}
 
 /* ---- 横画面：左に偽アナライザーを固定、右にいつも通りの画面を並べる ---- */
 @media (orientation:landscape){
@@ -43,16 +47,9 @@ body{
     width:42%;max-width:440px;flex:none;padding:16px;
     background:var(--ink2);border-right:1px solid var(--line);
   }
-  #sideAnalyzer .cap{
-    font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
-    margin-bottom:10px;text-transform:uppercase;
-    display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
-  }
-  #sideAnalyzer .cap .sw{color:var(--amber)}
-  #sideAnalyzer canvas{width:100%;display:block;cursor:pointer}
   #mainCol{flex:1;min-width:0}
-  /* NOW画面の中にも同じ模様を出すと横画面では二重になるので隠す */
-  .analyzerWrap{display:none}
+  /* NOW画面側の表示は横画面だと二重になるので、状態にかかわらず隠す（サイドバー側だけ出す） */
+  #pane-now .anToggle,#pane-now .analyzerWrap,#pane-now .videoStage{display:none!important}
 }
 button,input,select{font:inherit;color:inherit}
 button{background:none;border:0;padding:0;cursor:pointer}
@@ -120,22 +117,24 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .empty b{display:block;color:var(--fg);font-size:14px;margin-bottom:6px}
 
 /* ---- analyzer（ドットマトリクス風スペクトラム・正方形ドット） ---- */
+/* 切り替えラベルは枠の外（常設）。ドット表示は今まで通りパディング付きの
+   カード、動画表示はパディング無しで横幅いっぱいに広げる別枠にする */
+.anToggle{
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
+  margin:18px 0 8px;text-transform:uppercase;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
+}
+.anToggle .sw{color:var(--amber)}
 .analyzerWrap{
-  margin:18px 0 4px;padding:14px;border-radius:14px;
+  padding:14px;border-radius:14px;
   background:var(--ink2);border:1px solid var(--line);
   overflow:hidden;
 }
-.analyzerWrap .cap{
-  font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
-  margin-bottom:10px;text-transform:uppercase;
-  display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
-}
-.analyzerWrap .cap .sw{color:var(--amber)}
 #analyzer{display:block;width:100%;cursor:pointer}
-#bgVid,#bgVid2{width:100%;display:none;border-radius:8px;cursor:pointer;background:#000}
-/* 動画モードの時はcanvasを隠して動画を出す */
-.analyzerWrap.videoMode #analyzer,#sideAnalyzer.videoMode #analyzer2{display:none}
-.analyzerWrap.videoMode #bgVid,#sideAnalyzer.videoMode #bgVid2{display:block}
+.videoStage{
+  width:100%;border-radius:14px;overflow:hidden;background:#000;
+}
+.videoStage video{width:100%;display:block;cursor:pointer}
 
 /* ---- transport ---- */
 #transport{
@@ -208,9 +207,9 @@ input[type=text]{
 <input type="file" id="pickBgVideo" accept="video/*" hidden>
 
 <div id="sideAnalyzer">
-  <div class="cap">analyzer<span class="sw" id="anSwitch2">⇄ 動画</span></div>
-  <canvas id="analyzer2"></canvas>
-  <video id="bgVid2" muted loop playsinline></video>
+  <div class="anToggle" id="anCapSide">analyzer<span class="sw" id="anSwitch2">⇄ 動画</span></div>
+  <div class="analyzerWrap on" id="dotsBoxSide"><canvas id="analyzer2"></canvas></div>
+  <div class="videoStage" id="videoBoxSide"><video id="bgVid2" muted loop playsinline></video></div>
 </div>
 <div id="mainCol">
 
@@ -245,9 +244,11 @@ input[type=text]{
   <section class="pane" id="pane-now">
     <audio id="vid" preload="metadata"></audio>
     <div>
-      <div class="analyzerWrap">
-        <div class="cap">analyzer<span class="sw" id="anSwitch">⇄ 動画</span></div>
+      <div class="anToggle" id="anCapNow">analyzer<span class="sw" id="anSwitch">⇄ 動画</span></div>
+      <div class="analyzerWrap on" id="dotsBoxNow">
         <canvas id="analyzer"></canvas>
+      </div>
+      <div class="videoStage" id="videoBoxNow">
         <video id="bgVid" muted loop playsinline></video>
       </div>
 
@@ -876,7 +877,9 @@ $("#tBar").onclick=e=>{
 /* ===== ドット偽アナライザー / 背景動画 の切り替え =====
    固定の1本の動画（音無し・ループ）を保存しておき、ドット演出と
    タップで切り替えられるようにする。動画は音声とは完全に別物で、
-   ミュートしたまま流すだけの背景演出 */
+   ミュートしたまま流すだけの背景演出。
+   切り替えラベルは枠の外にあり、ドット表示（パディング付きカード）と
+   動画表示（パディング無し・横幅いっぱい）は別々の箱として持たせてある */
 let anMode="dots";
 let bgVideoURL=null;
 function setAnMode(mode){
@@ -886,8 +889,10 @@ function setAnMode(mode){
   }
   anMode=mode;
   const on=mode==="video";
-  $(".analyzerWrap").classList.toggle("videoMode",on);
-  $("#sideAnalyzer").classList.toggle("videoMode",on);
+  $("#dotsBoxNow").classList.toggle("on",!on);
+  $("#dotsBoxSide").classList.toggle("on",!on);
+  $("#videoBoxNow").classList.toggle("on",on);
+  $("#videoBoxSide").classList.toggle("on",on);
   const label="⇄ "+(on?"ドット":"動画");
   $("#anSwitch").textContent=label;
   $("#anSwitch2").textContent=label;
@@ -897,7 +902,7 @@ function setAnMode(mode){
     $("#bgVid").pause();$("#bgVid2").pause();
   }
 }
-$$(".analyzerWrap .cap, #sideAnalyzer .cap").forEach(el=>{
+$$("#anCapNow, #anCapSide").forEach(el=>{
   el.onclick=()=>setAnMode(anMode==="dots"?"video":"dots");
 });
 
@@ -1001,19 +1006,18 @@ function drawFakeAnalyzer(cv,brightness){
   const offX=(wCss-totalW)/2;
 
   const cs=getComputedStyle(document.body);
-  const amberHex=cs.getPropertyValue("--amber").trim()||"#e8a33d";
   const claudeHex=cs.getPropertyValue("--claude-orange").trim()||"#da7756";
   const offHex=cs.getPropertyValue("--ink3").trim()||"#2a2724";
-  const amberRgb=hexToRgb(amberHex),claudeRgb=hexToRgb(claudeHex),offRgb=hexToRgb(offHex);
+  const claudeRgb=hexToRgb(claudeHex),offRgb=hexToRgb(offHex);
 
   for(let row=0;row<AN_ROWS;row++){
     for(let col=0;col<AN_COLS;col++){
       const idx=row*AN_COLS+col;
       const v=brightness[idx]||0;
       const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
-      // 3段階の固定色ではなく、消灯→アンバー→クロードオレンジへ
+      // アンバーは使わず、消灯→クロードオレンジのみで
       // 明るさに応じて無段階（連続的）に色を混ぜる
-      const rgb=v<=0.5?lerpRgb(offRgb,amberRgb,v/0.5):lerpRgb(amberRgb,claudeRgb,(v-0.5)/0.5);
+      const rgb=lerpRgb(offRgb,claudeRgb,v);
       g.fillStyle="rgb("+rgb[0]+","+rgb[1]+","+rgb[2]+")";
       g.fillRect(x,y,cell,cell);
     }
