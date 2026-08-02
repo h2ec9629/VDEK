@@ -893,22 +893,36 @@ function drawFakeAnalyzer(cv,brightness){
   const offX=(wCss-totalW)/2;
 
   const cs=getComputedStyle(document.body);
-  const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
-  const claude=cs.getPropertyValue("--claude-orange").trim()||"#da7756";
-  const off=cs.getPropertyValue("--ink3").trim()||"#2a2724";
+  const amberHex=cs.getPropertyValue("--amber").trim()||"#e8a33d";
+  const claudeHex=cs.getPropertyValue("--claude-orange").trim()||"#da7756";
+  const offHex=cs.getPropertyValue("--ink3").trim()||"#2a2724";
+  const amberRgb=hexToRgb(amberHex),claudeRgb=hexToRgb(claudeHex),offRgb=hexToRgb(offHex);
 
   for(let row=0;row<AN_ROWS;row++){
     for(let col=0;col<AN_COLS;col++){
       const idx=row*AN_COLS+col;
       const v=brightness[idx]||0;
       const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
-      let color=off;
-      if(v>0.5)color=claude;
-      else if(v>0.12)color=amber;
-      g.fillStyle=color;
+      // 3段階の固定色ではなく、消灯→アンバー→クロードオレンジへ
+      // 明るさに応じて無段階（連続的）に色を混ぜる
+      const rgb=v<=0.5?lerpRgb(offRgb,amberRgb,v/0.5):lerpRgb(amberRgb,claudeRgb,(v-0.5)/0.5);
+      g.fillStyle="rgb("+rgb[0]+","+rgb[1]+","+rgb[2]+")";
       g.fillRect(x,y,cell,cell);
     }
   }
+}
+function hexToRgb(hex){
+  hex=hex.replace("#","");
+  if(hex.length===3)hex=hex.split("").map(c=>c+c).join("");
+  const n=parseInt(hex,16);
+  return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function lerpRgb(a,b,t){
+  return [
+    Math.round(a[0]+(b[0]-a[0])*t),
+    Math.round(a[1]+(b[1]-a[1])*t),
+    Math.round(a[2]+(b[2]-a[2])*t),
+  ];
 }
 (function analyzerLoop(){
   const dt=(vid.paused?0.25:1)*0.016; // 止まってる時はゆっくりに落として控えめにする
