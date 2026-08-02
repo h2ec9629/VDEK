@@ -18,6 +18,7 @@
   --amber:#e8a33d;
   --amber-d:#8a5f1d;
   --cut:#d9584a;
+  --claude-orange:#da7756;
   --mono:ui-monospace,"SF Mono",Menlo,monospace;
   --sys:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
   --top:env(safe-area-inset-top);
@@ -828,26 +829,42 @@ $("#tBar").onclick=e=>{
 };
 
 /* ===== 偽アナライザー（音は一切拾わない、見た目だけの演出） =====
-   直線的に流れる系のパターンを5種類用意して、時間で自動的に切り替える。
-   AudioContextやcaptureStreamは一切使わないので、Safari非対応も
-   バックグラウンド再生への影響も、タップで音がおかしくなる不具合も、
-   そもそも原理的に起こりようがない */
+   ランダムに選んだ60個のドットがクロードオレンジに点灯し、3秒かけて
+   じわっと暗くなって消える。これを3グループ用意し、1秒ずつずらして
+   スタートさせることで、常にどこかで点灯・どこかで消えかけている
+   状態が重なり合う。AudioContextやcaptureStreamは一切使わないので、
+   Safari非対応もバックグラウンド再生への影響も、タップで音がおかしく
+   なる不具合も、そもそも原理的に起こりようがない */
 let mpTick=0;
 const AN_COLS=23,AN_ROWS=25;
+const AN_TOTAL=AN_COLS*AN_ROWS;
 let anT=0;
-const EFFECT_SEC=14; // このくらいの周期でパターンを自動的に切り替える
 
-// 5種類とも「面が一定方向に流れる」直線的な動きだけで作る（回転・拡散なし）
-function effectValue(idx,col,row,t){
-  switch(idx){
-    case 0: return Math.sin((col-t*6)*0.9);                 // 縦縞が左→右へ流れる
-    case 1: return Math.sin((row-t*6)*0.9);                  // 横縞が上→下へ流れる
-    case 2: return Math.sin((col+row-t*8)*0.55);             // 斜め縞（右下向き）が流れる
-    case 3: return Math.sin((col-row+t*7)*0.55);             // 斜め縞（左下向き）が流れる
-    default:return Math.sin((col-t*11)*1.6);                 // 細かい縦縞が高速に流れる
+const SPARK_DUR=3;     // 点灯から消えるまでの秒数
+const SPARK_COUNT=60;  // 1回の点灯で光らせるドット数
+const GROUP_GAP=1;     // グループごとのスタートずらし（秒）
+// 3グループぶん、次に発火する時刻と現在光っているドットを管理する
+const sparkGroups=[0,1,2].map(i=>({nextFire:i*GROUP_GAP,sparks:[]}));
+
+/* 0〜total-1からn個の重複なしランダムなインデックスを選ぶ */
+function pickRandomIdx(n,total){
+  const arr=Array.from({length:total},(_,i)=>i);
+  for(let i=0;i<n;i++){
+    const j=i+Math.floor(Math.random()*(total-i));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr.slice(0,n);
+}
+function updateSparks(now){
+  for(const g of sparkGroups){
+    if(now>=g.nextFire){
+      for(const idx of pickRandomIdx(SPARK_COUNT,AN_TOTAL))g.sparks.push({idx,start:g.nextFire});
+      g.nextFire+=SPARK_DUR; // 発火間隔＝フェード時間なので、継ぎ目なく次のセットに切り替わる
+    }
+    g.sparks=g.sparks.filter(s=>now-s.start<SPARK_DUR); // 消え終わったものは間引く
   }
 }
-function drawFakeAnalyzer(cv){
+function drawFakeAnalyzer(cv,brightness){
   if(!cv)return;
   // 親要素（パディング持ち）ではなく、canvas自身のレイアウト幅を測る。
   // 親のrectで測るとパディング込みの幅を丸ごとcanvasに与えてしまい、
@@ -877,29 +894,39 @@ function drawFakeAnalyzer(cv){
 
   const cs=getComputedStyle(document.body);
   const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
-  const amberD=cs.getPropertyValue("--amber-d").trim()||"#8a5f1d";
+  const claude=cs.getPropertyValue("--claude-orange").trim()||"#da7756";
   const off=cs.getPropertyValue("--ink3").trim()||"#2a2724";
-
-  const speed=vid.paused?0.25:1; // 止まってる時はゆっくりに落として控えめにする
-  const effIdx=Math.floor(anT/EFFECT_SEC)%5;
 
   for(let row=0;row<AN_ROWS;row++){
     for(let col=0;col<AN_COLS;col++){
-      let v=effectValue(effIdx,col,row,anT*speed);
-      v=(v+1)/2; // 0〜1に正規化
+      const idx=row*AN_COLS+col;
+      const v=brightness[idx]||0;
       const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
       let color=off;
-      if(v>0.66)color=amber;
-      else if(v>0.4)color=amberD;
+      if(v>0.5)color=claude;
+      else if(v>0.12)color=amber;
       g.fillStyle=color;
       g.fillRect(x,y,cell,cell);
     }
   }
 }
 (function analyzerLoop(){
-  anT+=0.016;
-  drawFakeAnalyzer($("#analyzer"));
-  drawFakeAnalyzer($("#analyzer2"));
+  const dt=(vid.paused?0.25:1)*0.016; // 止まってる時はゆっくりに落として控えめにする
+  anT+=dt;
+  updateSparks(anT);
+
+  // 3グループぶんのドットの明るさをまとめて計算（重なったら明るい方を採用）
+  const brightness=new Float32Array(AN_TOTAL);
+  for(const g of sparkGroups){
+    for(const s of g.sparks){
+      const elapsed=anT-s.start;
+      if(elapsed<0||elapsed>SPARK_DUR)continue;
+      const v=Math.pow(1-elapsed/SPARK_DUR,1.4); // じわっと減衰するカーブ
+      if(v>brightness[s.idx])brightness[s.idx]=v;
+    }
+  }
+  drawFakeAnalyzer($("#analyzer"),brightness);
+  drawFakeAnalyzer($("#analyzer2"),brightness);
   requestAnimationFrame(analyzerLoop);
 })();
 
