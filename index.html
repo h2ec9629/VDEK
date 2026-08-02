@@ -42,7 +42,7 @@ body{
     width:42%;max-width:440px;flex:none;padding:16px;
     background:var(--ink2);border-right:1px solid var(--line);
   }
-  #sideAnalyzer canvas{width:100%;display:block}
+  #sideAnalyzer canvas{width:100%;display:block;cursor:pointer}
   #mainCol{flex:1;min-width:0}
   /* NOW画面の中にも同じ模様を出すと横画面では二重になるので隠す */
   .analyzerWrap{display:none}
@@ -122,7 +122,7 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
   font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
   margin-bottom:10px;text-transform:uppercase;
 }
-#analyzer{display:block;width:100%}
+#analyzer{display:block;width:100%;cursor:pointer}
 
 /* ---- transport ---- */
 #transport{
@@ -828,17 +828,31 @@ $("#tBar").onclick=e=>{
 };
 
 /* ===== 偽アナライザー（音は一切拾わない、見た目だけの演出） =====
-   昔のWindows Media Playerのビジュアライザーみたいに、模様が回転・拡散する
-   動きを時間経過だけで作る。AudioContextやcaptureStreamを一切使わないので、
-   Safari非対応もバックグラウンド再生への影響も、タップで音がおかしくなる
-   不具合も、そもそも原理的に起こりようがない */
+   直線的に流れる系のパターンを5種類用意して、時間で自動的に切り替える。
+   AudioContextやcaptureStreamは一切使わないので、Safari非対応も
+   バックグラウンド再生への影響も、タップで音がおかしくなる不具合も、
+   そもそも原理的に起こりようがない */
 let mpTick=0;
 const AN_COLS=23,AN_ROWS=25;
 let anT=0;
+const EFFECT_SEC=14; // このくらいの周期でパターンを自動的に切り替える
 
+// 5種類とも「面が一定方向に流れる」直線的な動きだけで作る（回転・拡散なし）
+function effectValue(idx,col,row,t){
+  switch(idx){
+    case 0: return Math.sin((col-t*6)*0.9);                 // 縦縞が左→右へ流れる
+    case 1: return Math.sin((row-t*6)*0.9);                  // 横縞が上→下へ流れる
+    case 2: return Math.sin((col+row-t*8)*0.55);             // 斜め縞（右下向き）が流れる
+    case 3: return Math.sin((col-row+t*7)*0.55);             // 斜め縞（左下向き）が流れる
+    default:return Math.sin((col-t*11)*1.6);                 // 細かい縦縞が高速に流れる
+  }
+}
 function drawFakeAnalyzer(cv){
   if(!cv)return;
-  const rect=cv.parentElement.getBoundingClientRect();
+  // 親要素（パディング持ち）ではなく、canvas自身のレイアウト幅を測る。
+  // 親のrectで測るとパディング込みの幅を丸ごとcanvasに与えてしまい、
+  // その分だけ右にはみ出して見えていた（これが「まだ右寄り」の正体）
+  const rect=cv.getBoundingClientRect();
   const dpr=Math.min(2,window.devicePixelRatio||1);
   const wCss=Math.max(1,Math.round(rect.width));
   if(wCss<=1)return; // 非表示中は幅が取れないので描かない
@@ -857,34 +871,26 @@ function drawFakeAnalyzer(cv){
   g.setTransform(dpr,0,0,dpr,0,0);
   g.clearRect(0,0,wCss,hCss);
 
-  // 実際は幅ぴったりに収まる計算だが、端数のズレで右や左に寄って
-  // 見えないよう、余り分を左右均等に振り分けて中央寄せする
+  // 端数のズレで片側に寄って見えないよう、余りを左右均等に振り分ける（念のため）
   const totalW=AN_COLS*cell+(AN_COLS+1)*gap;
   const offX=(wCss-totalW)/2;
 
   const cs=getComputedStyle(document.body);
   const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
-  const cut=cs.getPropertyValue("--cut").trim()||"#d9584a";
+  const amberD=cs.getPropertyValue("--amber-d").trim()||"#8a5f1d";
   const off=cs.getPropertyValue("--ink3").trim()||"#2a2724";
 
-  const cx=(AN_COLS-1)/2, cy=(AN_ROWS-1)/2;
-  const maxR=Math.sqrt(cx*cx+cy*cy)||1;
-  const speed=vid.paused?0.2:1; // 止まってる時はゆっくりに落として控えめにする
+  const speed=vid.paused?0.25:1; // 止まってる時はゆっくりに落として控えめにする
+  const effIdx=Math.floor(anT/EFFECT_SEC)%5;
 
   for(let row=0;row<AN_ROWS;row++){
     for(let col=0;col<AN_COLS;col++){
-      const nx=(col-cx)/maxR, ny=(row-cy)/maxR;
-      const r=Math.sqrt(nx*nx+ny*ny);
-      const ang=Math.atan2(ny,nx);
-      // 波を3つ重ねて、回転しながら広がる模様にする
-      let v=Math.sin(r*9-anT*2.4*speed)
-           +Math.sin(ang*4+anT*1.3*speed)
-           +Math.sin(r*5+ang*2-anT*1.7*speed);
-      v=(v/3+1)/2; // 0〜1に正規化
+      let v=effectValue(effIdx,col,row,anT*speed);
+      v=(v+1)/2; // 0〜1に正規化
       const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
       let color=off;
-      if(v>0.72)color=cut;
-      else if(v>0.42)color=amber;
+      if(v>0.66)color=amber;
+      else if(v>0.4)color=amberD;
       g.fillStyle=color;
       g.fillRect(x,y,cell,cell);
     }
@@ -896,6 +902,14 @@ function drawFakeAnalyzer(cv){
   drawFakeAnalyzer($("#analyzer2"));
   requestAnimationFrame(analyzerLoop);
 })();
+
+/* 偽アナライザー部分をタップしたら再生／一時停止を切り替える */
+function togglePlay(){
+  if(!queue.length)return toast("曲を選んでください");
+  vid.paused?vid.play().catch(()=>{}):vid.pause();
+}
+$("#analyzer").addEventListener("click",togglePlay);
+$("#analyzer2").addEventListener("click",togglePlay);
 
 /* ============ boot ============ */
 async function reload(){
@@ -912,4 +926,3 @@ openDB().then(reload).then(syncBtns).then(mediaSetup).catch(e=>{
 </script>
 </body>
 </html>
-
