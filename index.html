@@ -229,6 +229,7 @@ input[type=text]{
         <input type="file" id="pick" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac" multiple hidden>
       </label>
       <button class="btn" id="fixAll">調べ直す</button>
+      <button class="btn" id="normAll">音量そろえ</button>
     </div>
     <div id="libList"></div>
   </section>
@@ -299,6 +300,10 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 /* ============ state ============ */
 let VIDEOS=[],PLAYLISTS=[];
 let queue=[],qi=-1,shuffle=false,repeat="off",curURL=null,curVid=null;
+let shuffleHistory=[]; // 直近に流した曲のインデックス（同じ曲がすぐ来ないようにするため）
+const SHUFFLE_AVOID=10; // 直近何曲を候補から外すか
+let audioCtx=null,gainNode=null,srcNode=null,decodeCtx=null;
+const TARGET_RMS=0.1; // 音量そろえの基準値（この値に近づける）
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const vid=$("#vid");
@@ -641,11 +646,12 @@ function renderLib(){
   const w=$("#libList");w.innerHTML="";
   if(!VIDEOS.length){w.innerHTML='<div class="empty"><b>まだ何もありません</b>上の「曲を取り込む」からmp3などを選んでください。</div>';return;}
   VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt).forEach(v=>{
-    w.appendChild(cardEl({thumb:v.thumb,title:v.name,sub:fmt(v.dur)+" · "+mb(v.size)+(v.data||v.chunks?"":" · 要 再取込"),
+    w.appendChild(cardEl({thumb:v.thumb,title:v.name,sub:fmt(v.dur)+" · "+mb(v.size)+(v.data||v.chunks?"":" · 要 再取込")+(v.gain&&v.gain!==1?" · 音量×"+v.gain.toFixed(2):""),
       tap:()=>playLibraryFrom(v.id),
       menu:()=>sheet(v.name,[
         {label:"再生する",fn:()=>playLibraryFrom(v.id)},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"video",refId:v.id})},
+        {label:"音量をそろえる（測定）",fn:()=>normalizeOne(v)},
         {label:"長さとサムネを調べ直す",fn:()=>repair(v)},
         {label:"診断する（データが揃ってるか）",fn:()=>diagnose(v)},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",v.name,async n=>{v.name=n;await put("videos",v);await reload();})},
@@ -682,7 +688,7 @@ function renderPl(){
 }
 function resolve(it){
   const v=VIDEOS.find(v=>v.id===it.refId);
-  return v?{kind:"video",videoId:v.id,title:v.name,start:0,end:null,thumb:v.thumb}:null;
+  return v?{kind:"video",videoId:v.id,title:v.name,start:0,end:null,thumb:v.thumb,gain:v.gain||1}:null;
 }
 function editPl(p){
   const s=$("#sheet");s.innerHTML="<h3>"+p.name+" の中身</h3>";
@@ -737,7 +743,7 @@ function mediaSetup(){
   if(!("mediaSession" in navigator))return;
   const ms=navigator.mediaSession;
   const set=(k,fn)=>{try{ms.setActionHandler(k,fn)}catch(_){}};
-  set("play",()=>vid.play().catch(()=>{}));
+  set("play",()=>{ensureAudioGraph();vid.play().catch(()=>{});});
   set("pause",()=>vid.pause());
   set("stop",()=>vid.pause());
   set("nexttrack",()=>next());
@@ -774,19 +780,85 @@ function mediaPos(){
     duration:dur,playbackRate:vid.playbackRate||1,
     position:Math.max(0,Math.min(dur,vid.currentTime-s))});}catch(_){}
 }
-function playQueue(q,i){queue=q;qi=i;go("now");load(true);}
+/* 音量そろえ：曲ごとに測定した倍率(gain)を、再生経路に挟んだGainNodeで
+   かけるだけ。元の音声データそのものは一切いじらない。
+   MediaElementSourceは同じaudio要素につき1回しか作れないので、
+   グラフは最初の再生操作（ユーザー操作＝iOSの自動再生制限をクリアできるタイミング）
+   で一度だけ組み、以降は使い回す */
+function ensureAudioGraph(){
+  if(audioCtx)return;
+  try{
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    srcNode=audioCtx.createMediaElementSource(vid);
+    gainNode=audioCtx.createGain();
+    srcNode.connect(gainNode).connect(audioCtx.destination);
+    applyGain(queue[qi]);
+  }catch(_){audioCtx=null;}
+  if(audioCtx&&audioCtx.state==="suspended")audioCtx.resume().catch(()=>{});
+}
+function applyGain(it){
+  if(!gainNode)return;
+  gainNode.gain.value=(it&&it.gain)||1;
+}
+/* 曲の音量（RMS）を測って、基準値に合わせる倍率を返す。
+   decodeAudioData用のAudioContextは使い回す（毎回作って捨てると
+   Safariで「これ以上AudioContext作れません」に引っかかることがある） */
+function getDecodeCtx(){
+  if(!decodeCtx){try{decodeCtx=new (window.AudioContext||window.webkitAudioContext)();}catch(_){decodeCtx=null;}}
+  return decodeCtx;
+}
+async function measureGain(blob){
+  if(!blob||!blob.size)return 1;
+  if(blob.size>300*1048576)return 1; // でかすぎるファイルは重いので測定スキップ
+  const ctx=getDecodeCtx();if(!ctx)return 1;
+  try{
+    const buf=await blob.arrayBuffer();
+    const audioBuf=await ctx.decodeAudioData(buf);
+    let sumSq=0,count=0;const step=4; // 間引いて計算を軽くする
+    for(let ch=0;ch<audioBuf.numberOfChannels;ch++){
+      const data=audioBuf.getChannelData(ch);
+      for(let i=0;i<data.length;i+=step){sumSq+=data[i]*data[i];count++;}
+    }
+    const rms=count?Math.sqrt(sumSq/count):0;
+    if(!rms)return 1;
+    return Math.max(0.25,Math.min(4,TARGET_RMS/rms)); // 極端な値にはしない
+  }catch(_){return 1;}
+}
+async function normalizeOne(v){
+  const b=await blobOf(v);
+  if(!b||!b.size)return toast("データがありません");
+  toast("音量を測定中… "+v.name);
+  v.gain=await measureGain(b);
+  await put("videos",v);
+  await reload();
+  toast("音量そろえ完了（×"+v.gain.toFixed(2)+"）");
+}
+$("#normAll").onclick=async()=>{
+  if(!VIDEOS.length)return;
+  for(const v of VIDEOS.slice()){
+    const b=await blobOf(v);
+    if(!b||!b.size)continue;
+    toast("音量を測定中… "+v.name);
+    v.gain=await measureGain(b);
+    await put("videos",v);
+  }
+  await reload();toast("全曲の音量をそろえました");
+};
+
+function playQueue(q,i){queue=q;qi=i;shuffleHistory=[qi];go("now");load(true);}
 /* ライブラリから曲を選んだとき、その1曲だけでなくライブラリ全体を
    キューにする。これで次へ/前へ/シャッフル/リピートが効くようになる。
    並び順は一覧の表示順（新しく取り込んだ順）に合わせる */
 function playLibraryFrom(videoId){
   const q=VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt)
-    .map(v=>({kind:"video",videoId:v.id,title:v.name,start:0,end:null}));
+    .map(v=>({kind:"video",videoId:v.id,title:v.name,start:0,end:null,gain:v.gain||1}));
   const i=q.findIndex(it=>it.videoId===videoId);
   playQueue(q,i>=0?i:0);
 }
 let skipGuard=0;
 async function load(auto){
   const it=queue[qi];if(!it)return;
+  applyGain(it);
   if(curVid!==it.videoId){
     const v=await one("videos",it.videoId);
     if(!v){
@@ -817,10 +889,29 @@ async function load(auto){
   };
   if(vid.readyState>=1)seek();else vid.onloadedmetadata=seek;
 }
+/* シャッフルの次の1曲を選ぶ。直近SHUFFLE_AVOID曲は候補から外し、
+   同じ曲が数曲おきに繰り返し来ないようにする。
+   曲数がSHUFFLE_AVOID以下の小さいリストでは除外幅を自動で狭める */
+function pickShuffleIndex(){
+  if(queue.length<=1)return 0;
+  const avoidLen=Math.min(SHUFFLE_AVOID,queue.length-1);
+  const avoid=new Set(shuffleHistory.slice(-avoidLen));
+  avoid.add(qi);
+  let candidates=[];
+  for(let i=0;i<queue.length;i++){if(!avoid.has(i))candidates.push(i);}
+  if(!candidates.length){
+    // 除外しすぎて候補が無くなったら、今の曲以外から選ぶ
+    for(let i=0;i<queue.length;i++){if(i!==qi)candidates.push(i);}
+  }
+  const n=candidates[Math.floor(Math.random()*candidates.length)];
+  shuffleHistory.push(n);
+  if(shuffleHistory.length>SHUFFLE_AVOID*3)shuffleHistory=shuffleHistory.slice(-SHUFFLE_AVOID*2);
+  return n;
+}
 function next(){
   if(repeat==="one")return load(true);
   if(!queue.length)return;
-  if(shuffle){qi=queue.length>1?(()=>{let n;do{n=Math.floor(Math.random()*queue.length)}while(n===qi);return n})():0;return load(true);}
+  if(shuffle){qi=pickShuffleIndex();return load(true);}
   if(qi<queue.length-1){qi++;return load(true);}
   if(repeat==="all"){qi=0;return load(true);}
   vid.pause();
@@ -830,7 +921,7 @@ function prev(){
   if(it&&vid.currentTime-(it.start||0)>3)return vid.currentTime=it.start||0;
   if(qi>0){qi--;load(true);}else if(it){vid.currentTime=it.start||0;}
 }
-$("#bPlay").onclick=()=>{if(!queue.length)return toast("曲を選んでください");vid.paused?vid.play().catch(()=>{}):vid.pause();};
+$("#bPlay").onclick=()=>{if(!queue.length)return toast("曲を選んでください");ensureAudioGraph();vid.paused?vid.play().catch(()=>{}):vid.pause();};
 $("#bNext").onclick=next;$("#bPrev").onclick=prev;
 $("#bShuffle").onclick=()=>{shuffle=!shuffle;syncBtns();toast(shuffle?"ランダム ON":"ランダム OFF")};
 $("#bRepeat").onclick=()=>{repeat=repeat==="off"?"all":repeat==="all"?"one":"off";syncBtns();
@@ -1059,6 +1150,7 @@ function lerpRgb(a,b,t){
 /* 偽アナライザー部分をタップしたら再生／一時停止を切り替える */
 function togglePlay(){
   if(!queue.length)return toast("曲を選んでください");
+  ensureAudioGraph();
   vid.paused?vid.play().catch(()=>{}):vid.pause();
 }
 $("#analyzer").addEventListener("click",togglePlay);
