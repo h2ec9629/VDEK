@@ -1110,28 +1110,35 @@ function drawRimaScene(g,wCss,hCss){
   }
 
   // リマちゃん（ブースの向こう側で頭が揺れる。腕はスクラッチするみたいに上下）
+  // ここだけは8bitのカクカクにせず、滑らかな円弧で描く
   const bob=Math.sin(anT*3)*0.6;
-  const headCx=PXW*0.5, headCy=PXH*0.52+bob, headR=5.2;
-  g.fillStyle=cream;
-  for(let y=-headR;y<=headR;y++)for(let x=-headR;x<=headR;x++){
-    if(x*x+y*y>headR*headR)continue;
-    px(headCx+x,headCy+y,1,1);
-  }
-  // ヘッドホン
+  const headCx=(PXW*0.5)*pw, headCy=(PXH*0.52+bob)*ph, headR=5.2*pw;
+  const circle=(cx,cy,r)=>{g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.fill();};
+
+  g.fillStyle=cream;circle(headCx,headCy,headR);
+
+  // ヘッドホン（バンド＋左右のイヤーパッド）
   g.fillStyle=claude;
-  px(headCx-headR-1,headCy-1,2,3);px(headCx+headR-1,headCy-1,2,3);
-  px(headCx-headR+1,headCy-headR-1,headR*2-2,1.6);
-  // 目（閉じた目）と口
-  g.fillStyle="#2a2015";
-  px(headCx-2.6,headCy-0.5,1.6,0.8);px(headCx+1,headCy-0.5,1.6,0.8);
-  px(headCx-1,headCy+2,2,0.8);
+  g.lineWidth=headR*0.3;g.strokeStyle=claude;
+  g.beginPath();g.arc(headCx,headCy,headR*1.08,Math.PI*1.08,Math.PI*1.92);g.stroke();
+  circle(headCx-headR*0.98,headCy-headR*0.05,headR*0.28);
+  circle(headCx+headR*0.98,headCy-headR*0.05,headR*0.28);
+
+  // 目（閉じた目・弧）と口（小さな笑み）
+  g.strokeStyle="#2a2015";g.lineWidth=Math.max(1,headR*0.12);g.lineCap="round";
+  g.beginPath();g.arc(headCx-headR*0.42,headCy-headR*0.05,headR*0.22,Math.PI*0.15,Math.PI*0.85);g.stroke();
+  g.beginPath();g.arc(headCx+headR*0.42,headCy-headR*0.05,headR*0.22,Math.PI*0.15,Math.PI*0.85);g.stroke();
+  g.beginPath();g.arc(headCx,headCy+headR*0.28,headR*0.32,Math.PI*0.12,Math.PI*0.88);g.stroke();
+
   // 体
-  g.fillStyle=claude;px(headCx-3.5,headCy+headR-1,7,4);
+  g.fillStyle=claude;
+  g.beginPath();g.ellipse(headCx,headCy+headR*1.35,headR*0.72,headR*0.5,0,0,Math.PI*2);g.fill();
+
   // 腕（スクラッチしてる感じで左右交互に上下）
   const armL=Math.sin(anT*6)*1.4, armR=Math.sin(anT*6+Math.PI)*1.4;
   g.fillStyle=cream;
-  px(headCx-6,headCy+headR+armL,1.6,2.2);
-  px(headCx+4.4,headCy+headR+armR,1.6,2.2);
+  circle(headCx-headR*1.15,headCy+headR*1.3+armL*ph,headR*0.24);
+  circle(headCx+headR*1.15,headCy+headR*1.3+armR*ph,headR*0.24);
 }
 function hexToRgb(hex){
   hex=hex.replace("#","");
