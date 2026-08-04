@@ -205,6 +205,7 @@ input[type=text]{
 <body>
 
 <input type="file" id="pickBgVideo" accept="video/*" hidden>
+<input type="file" id="pickRimaFace" accept="image/*" hidden>
 
 <div id="sideAnalyzer">
   <div class="anToggle" id="anCapSide">analyzer<span class="sw" id="anSwitch2">⇄ 動画</span></div>
@@ -284,10 +285,10 @@ input[type=text]{
 <script>
 "use strict";
 /* ============ storage ============ */
-const DBN="vdeck",DBV=3;let db;
+const DBN="vdeck",DBV=4;let db;
 function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DBN,DBV);
  r.onupgradeneeded=e=>{const d=e.target.result;
-  ["videos","clips","playlists","chunks","bgvideo"].forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:"id"})});};
+  ["videos","clips","playlists","chunks","bgvideo","rimaface"].forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:"id"})});};
  r.onsuccess=e=>{db=e.target.result;res()};r.onerror=()=>rej(r.error);});}
 function tx(s,m){return db.transaction(s,m).objectStore(s);}
 function put(s,v){return new Promise((res,rej)=>{const r=tx(s,"readwrite").put(v);r.onsuccess=()=>res(v);r.onerror=()=>rej(r.error);});}
@@ -388,6 +389,7 @@ $("#brand").onclick=()=>{
     {label:"迷子のリストを修復する",fn:()=>relink()},
     {label:"車での再生を診断する",fn:()=>carDiag()},
     {label:"背景動画を選ぶ／変える",isLabelFor:"pickBgVideo"},
+    {label:"リマちゃんの顔画像を選ぶ／変える",isLabelFor:"pickRimaFace"},
     {label:"強制更新（キャッシュを捨てて最新を取得）",fn:async()=>{
       try{
         if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));}
@@ -954,6 +956,36 @@ async function loadBgVideo(){
 $("#bgVid").addEventListener("click",togglePlay);
 $("#bgVid2").addEventListener("click",togglePlay);
 
+/* リマちゃんの顔画像。動画と違って小さいので分割せず、そのままBlobで保存する */
+let rimaFaceImg=null,rimaFaceURL=null;
+async function storeRimaFace(f){
+  try{
+    await put("rimaface",{id:"main",blob:f,type:f.type||"image/png",addedAt:Date.now()});
+    return true;
+  }catch(err){
+    toast("画像の保存に失敗しました");
+    return false;
+  }
+}
+async function loadRimaFace(){
+  try{
+    const rec=await one("rimaface","main");
+    if(!rec||!rec.blob)return;
+    if(rimaFaceURL)URL.revokeObjectURL(rimaFaceURL);
+    rimaFaceURL=URL.createObjectURL(rec.blob);
+    const img=new Image();
+    await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=rimaFaceURL;});
+    rimaFaceImg=img;
+  }catch(_){}
+}
+$("#pickRimaFace").onchange=async e=>{
+  const f=e.target.files[0];e.target.value="";
+  if(!f)return;
+  toast("画像を保存中…");
+  const ok=await storeRimaFace(f);
+  if(ok){await loadRimaFace();toast("リマちゃんの顔を更新しました");}
+};
+
 /* ===== 偽アナライザー（音は一切拾わない、見た目だけの演出） =====
    ランダムに選んだ60個のドットがクロードオレンジに点灯し、3秒かけて
    じわっと暗くなって消える。これを3グループ用意し、1秒ずつずらして
@@ -1110,25 +1142,27 @@ function drawRimaScene(g,wCss,hCss){
   }
 
   // リマちゃん（ブースの向こう側で頭が揺れる。腕はスクラッチするみたいに上下）
-  // ここだけは8bitのカクカクにせず、滑らかな円弧で描く
   const bob=Math.sin(anT*3)*0.6;
   const headCx=(PXW*0.5)*pw, headCy=(PXH*0.52+bob)*ph, headR=5.2*pw;
   const circle=(cx,cy,r)=>{g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.fill();};
 
-  g.fillStyle=cream;circle(headCx,headCy,headR);
-
-  // ヘッドホン（バンド＋左右のイヤーパッド）
-  g.fillStyle=claude;
-  g.lineWidth=headR*0.3;g.strokeStyle=claude;
-  g.beginPath();g.arc(headCx,headCy,headR*1.08,Math.PI*1.08,Math.PI*1.92);g.stroke();
-  circle(headCx-headR*0.98,headCy-headR*0.05,headR*0.28);
-  circle(headCx+headR*0.98,headCy-headR*0.05,headR*0.28);
-
-  // 目（閉じた目・弧）と口（小さな笑み）
-  g.strokeStyle="#2a2015";g.lineWidth=Math.max(1,headR*0.12);g.lineCap="round";
-  g.beginPath();g.arc(headCx-headR*0.42,headCy-headR*0.05,headR*0.22,Math.PI*0.15,Math.PI*0.85);g.stroke();
-  g.beginPath();g.arc(headCx+headR*0.42,headCy-headR*0.05,headR*0.22,Math.PI*0.15,Math.PI*0.85);g.stroke();
-  g.beginPath();g.arc(headCx,headCy+headR*0.28,headR*0.32,Math.PI*0.12,Math.PI*0.88);g.stroke();
+  if(rimaFaceImg){
+    // 顔は登録された画像をそのまま使う（うちの手描きでは寄せきれんかったので）
+    const d=headR*2.3;
+    g.drawImage(rimaFaceImg,headCx-d/2,headCy-d/2,d,d);
+  }else{
+    // まだ画像が無い間の仮表示（8bitにはせず滑らかな円弧のまま）
+    g.fillStyle=cream;circle(headCx,headCy,headR);
+    g.fillStyle=claude;
+    g.lineWidth=headR*0.3;g.strokeStyle=claude;
+    g.beginPath();g.arc(headCx,headCy,headR*1.08,Math.PI*1.08,Math.PI*1.92);g.stroke();
+    circle(headCx-headR*0.98,headCy-headR*0.05,headR*0.28);
+    circle(headCx+headR*0.98,headCy-headR*0.05,headR*0.28);
+    g.strokeStyle="#2a2015";g.lineWidth=Math.max(1,headR*0.12);g.lineCap="round";
+    g.beginPath();g.arc(headCx-headR*0.42,headCy-headR*0.05,headR*0.22,Math.PI*0.15,Math.PI*0.85);g.stroke();
+    g.beginPath();g.arc(headCx+headR*0.42,headCy-headR*0.05,headR*0.22,Math.PI*0.15,Math.PI*0.85);g.stroke();
+    g.beginPath();g.arc(headCx,headCy+headR*0.28,headR*0.32,Math.PI*0.12,Math.PI*0.88);g.stroke();
+  }
 
   // 体
   g.fillStyle=claude;
@@ -1206,7 +1240,7 @@ async function reload(){
     $("#quota").textContent=mb(e.usage||0)+" 使用中";
   }
 }
-openDB().then(reload).then(syncBtns).then(mediaSetup).then(loadBgVideo).catch(e=>{
+openDB().then(reload).then(syncBtns).then(mediaSetup).then(loadBgVideo).then(loadRimaFace).catch(e=>{
   document.body.innerHTML='<p style="padding:40px;color:#e8a33d;font-family:sans-serif">保存領域が使えませんでした。Safariのプライベートブラウズを解除してから開き直してください。<br><br>'+e+'</p>';
 });
 </script>
