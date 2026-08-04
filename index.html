@@ -874,36 +874,49 @@ $("#tBar").onclick=e=>{
   vid.currentTime=s+(en-s)*p;
 };
 
-/* ===== ドット偽アナライザー / 背景動画 の切り替え =====
-   固定の1本の動画（音無し・ループ）を保存しておき、ドット演出と
-   タップで切り替えられるようにする。動画は音声とは完全に別物で、
-   ミュートしたまま流すだけの背景演出。
-   切り替えラベルは枠の外にあり、ドット表示（パディング付きカード）と
-   動画表示（パディング無し・横幅いっぱい）は別々の箱として持たせてある */
-let anMode="dots";
+/* ===== 表示モードの切り替え：スパーク／背景動画／リマちゃんシーン =====
+   3つを1つの輪として順番に切り替える。動画が未登録の間は
+   「動画」を自動でスキップする。切り替えラベルは枠の外に常設 */
+const AN_ORDER=["sparks","video","rima"];
+let anMode="sparks";
 let bgVideoURL=null;
-function setAnMode(mode){
-  if(mode==="video"&&!$("#bgVid").src){
-    toast("先にVDECKメニューから背景動画を選んでください");
-    return;
+function hasBgVideo(){return !!$("#bgVid").src;}
+function nextAnMode(cur){
+  let idx=AN_ORDER.indexOf(cur);
+  for(let i=0;i<AN_ORDER.length;i++){
+    idx=(idx+1)%AN_ORDER.length;
+    if(AN_ORDER[idx]==="video"&&!hasBgVideo())continue; // 動画が無ければ飛ばす
+    return AN_ORDER[idx];
   }
-  anMode=mode;
-  const on=mode==="video";
-  $("#dotsBoxNow").classList.toggle("on",!on);
-  $("#dotsBoxSide").classList.toggle("on",!on);
-  $("#videoBoxNow").classList.toggle("on",on);
-  $("#videoBoxSide").classList.toggle("on",on);
-  const label="⇄ "+(on?"ドット":"動画");
+  return cur;
+}
+function applyAnMode(){
+  const isVideo=anMode==="video";
+  $("#dotsBoxNow").classList.toggle("on",!isVideo);
+  $("#dotsBoxSide").classList.toggle("on",!isVideo);
+  $("#videoBoxNow").classList.toggle("on",isVideo);
+  $("#videoBoxSide").classList.toggle("on",isVideo);
+  const nextLabel={sparks:"動画",video:"リマちゃん",rima:"ドット"}[anMode];
+  const label="⇄ "+nextLabel;
   $("#anSwitch").textContent=label;
   $("#anSwitch2").textContent=label;
-  if(on){
+  if(isVideo){
     if(!vid.paused){$("#bgVid").play().catch(()=>{});$("#bgVid2").play().catch(()=>{});}
   }else{
     $("#bgVid").pause();$("#bgVid2").pause();
   }
 }
+function cycleAnMode(manual){
+  anMode=nextAnMode(anMode);
+  applyAnMode();
+  if(manual){
+    clearInterval(anTimer);
+    anTimer=setInterval(()=>cycleAnMode(false),10000);
+  }
+}
+let anTimer=setInterval(()=>cycleAnMode(false),10000);
 $$("#anCapNow, #anCapSide").forEach(el=>{
-  el.onclick=()=>setAnMode(anMode==="dots"?"video":"dots");
+  el.onclick=()=>cycleAnMode(true);
 });
 
 /* 背景動画の保存（既存のチャンク保存の仕組みをそのまま流用） */
@@ -1010,11 +1023,8 @@ function drawFakeAnalyzer(cv,brightness){
   const offHex=cs.getPropertyValue("--ink3").trim()||"#2a2724";
   const claudeRgb=hexToRgb(claudeHex),offRgb=hexToRgb(offHex);
 
-  if(showMascot){
-    // マスコット表示中は背景を消灯色だけで敷いて、その上にマスコットだけ出す
-    g.fillStyle="rgb("+offRgb[0]+","+offRgb[1]+","+offRgb[2]+")";
-    g.fillRect(0,0,wCss,hCss);
-    drawMascot(g,offX,gap,cell,claudeHex);
+  if(anMode==="rima"){
+    drawRimaScene(g,wCss,hCss);
   }else{
     for(let row=0;row<AN_ROWS;row++){
       for(let col=0;col<AN_COLS;col++){
@@ -1030,34 +1040,98 @@ function drawFakeAnalyzer(cv,brightness){
     }
   }
 }
-/* ===== ドット絵マスコット（歩いて左右に往復する） =====
-   Anthropicの公式キャラそのものではなく、それっぽい雰囲気の
-   オリジナルの簡易ドット絵。B=胴体（クロードオレンジ）、E=目（黒）、.=透明 */
-const MASCOT_W=9,MASCOT_H=7;
-const MASCOT_FRAMES=[
-  [".BBBBBBB.","BBBBBBBBB","BBEBBBEBB","BBBBBBBBB","BBBBBBBBB","BBBBBBBBB","B.B.B.B.B"],
-  [".BBBBBBB.","BBBBBBBBB","BBEBBBEBB","BBBBBBBBB","BBBBBBBBB","BBBBBBBBB",".B.B.B.B."],
-];
-function drawMascot(g,offX,gap,cell,claudeHex){
-  const rangeCols=AN_COLS-MASCOT_W;
-  if(rangeCols<=0)return; // 列数が足りない環境では諦めて出さない
-  const cyc=anT*0.6;
-  const pos=(Math.sin(cyc)+1)/2; // 0〜1で左右に往復
-  const startCol=Math.round(pos*rangeCols);
-  const startRow=Math.floor((AN_ROWS-MASCOT_H)/2);
-  const movingRight=Math.cos(cyc)>=0; // 進んでる向きに合わせて反転させる
-  const frame=MASCOT_FRAMES[Math.floor(anT/0.4)%MASCOT_FRAMES.length];
-  for(let r=0;r<MASCOT_H;r++){
-    const rowStr=movingRight?frame[r]:frame[r].split("").reverse().join("");
-    for(let c=0;c<MASCOT_W;c++){
-      const ch=rowStr[c];
-      if(ch===".")continue;
-      const col=startCol+c,row=startRow+r;
-      const x=offX+gap+col*(cell+gap),y=gap+row*(cell+gap);
-      g.fillStyle=ch==="E"?"#1a1006":claudeHex;
-      g.fillRect(x,y,cell,cell);
-    }
+/* ===== リマちゃんシーン：DJ×ミラーボール（8bit風） =====
+   スパーク用の23×25マスとは別に、もっと細かい仮想ピクセルで
+   キャンバス全体に絵を描く。リマちゃんの見た目は「白っぽい丸顔・
+   閉じた目・小さな笑み」で、あわせてヘッドホンを乗せてDJ風にしてある。
+   星の位置は固定シードで作り、明滅だけ時間で揺らす */
+const RIMA_STAR_SEED=Array.from({length:14},(_,i)=>({
+  x:((i*53+7)%97)/97, y:((i*31+11)%53)/53, ph:i*1.3,
+}));
+function drawRimaScene(g,wCss,hCss){
+  const PXW=46;                              // 横方向の仮想ピクセル数（増やすと解像度アップ）
+  const PXH=Math.max(1,Math.round(PXW*hCss/wCss));
+  const pw=wCss/PXW, ph=hCss/PXH;
+  const px=(x,y,w,h)=>g.fillRect(Math.round(x)*pw,Math.round(y)*ph,Math.ceil((w||1)*pw),Math.ceil((h||1)*ph));
+
+  const cs=getComputedStyle(document.body);
+  const ink=cs.getPropertyValue("--ink").trim()||"#141312";
+  const dim=cs.getPropertyValue("--dim").trim()||"#948c82";
+  const line=cs.getPropertyValue("--line").trim()||"#3a3633";
+  const claude=cs.getPropertyValue("--claude-orange").trim()||"#da7756";
+  const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
+  const cream="#efe6d8";
+
+  // 背景（クラブの暗がり）
+  g.fillStyle=ink;g.fillRect(0,0,wCss,hCss);
+
+  // 星のきらめき（上半分だけに散らす）
+  g.fillStyle=dim;
+  RIMA_STAR_SEED.forEach(s=>{
+    const tw=(Math.sin(anT*2+s.ph)+1)/2;
+    if(tw<0.45)return;
+    px(s.x*PXW,s.y*PXH*0.5,1,1);
+  });
+
+  // ミラーボール（中心から半径判定で円を作り、市松模様でファセットを表現。
+  // 時間でファセットのON/OFFをずらして回転してるように見せる）
+  const bx=PXW*0.5, by=PXH*0.2, br=4;
+  const spin=Math.floor(anT*3);
+  for(let y=-br;y<=br;y++)for(let x=-br;x<=br;x++){
+    if(x*x+y*y>br*br)continue;
+    const on=((Math.round(bx+x)+Math.round(by+y)+spin)%2===0);
+    g.fillStyle=on?"#e8e2d6":"#8a8578";
+    px(bx+x,by+y,1,1);
   }
+  g.fillStyle=line;px(bx,0,1,by-br); // つり下げる糸
+
+  // ミラーボールからの反射光（明滅する斜めの光の筋）
+  const flick=(Math.sin(anT*5)+1)/2;
+  if(flick>0.6){
+    g.fillStyle=amber;
+    px(bx-10,by+3,2,1);px(bx+9,by+4,2,1);
+  }
+
+  // DJブース
+  const boothY=PXH*0.72, boothH=PXH*0.16, boothX=PXW*0.22, boothW=PXW*0.56;
+  g.fillStyle=line;px(boothX,boothY,boothW,boothH);
+  g.fillStyle="#100f0e";px(boothX+2,boothY+2,boothW-4,boothH-5);
+  // ターンテーブル2枚
+  g.fillStyle="#1c1a18";px(boothX+4,boothY+3,6,4);px(boothX+boothW-10,boothY+3,6,4);
+  g.fillStyle=claude;px(boothX+6,boothY+4,2,2);px(boothX+boothW-8,boothY+4,2,2);
+
+  // ビートに合わせて広がって消えるリング（ブースの前面から）
+  const beatT=anT%1.2,beatP=beatT/1.2;
+  if(beatP<0.9){
+    const rr=2+beatP*14, ra=1-beatP;
+    g.strokeStyle="rgba("+hexToRgb(claude).join(",")+","+(ra*0.6).toFixed(2)+")";
+    g.lineWidth=Math.max(1,ph*0.6);
+    g.beginPath();g.arc((bx)*pw,(boothY)*ph,rr*pw,0,Math.PI*2);g.stroke();
+  }
+
+  // リマちゃん（ブースの向こう側で頭が揺れる。腕はスクラッチするみたいに上下）
+  const bob=Math.sin(anT*3)*0.6;
+  const headCx=PXW*0.5, headCy=PXH*0.52+bob, headR=5.2;
+  g.fillStyle=cream;
+  for(let y=-headR;y<=headR;y++)for(let x=-headR;x<=headR;x++){
+    if(x*x+y*y>headR*headR)continue;
+    px(headCx+x,headCy+y,1,1);
+  }
+  // ヘッドホン
+  g.fillStyle=claude;
+  px(headCx-headR-1,headCy-1,2,3);px(headCx+headR-1,headCy-1,2,3);
+  px(headCx-headR+1,headCy-headR-1,headR*2-2,1.6);
+  // 目（閉じた目）と口
+  g.fillStyle="#2a2015";
+  px(headCx-2.6,headCy-0.5,1.6,0.8);px(headCx+1,headCy-0.5,1.6,0.8);
+  px(headCx-1,headCy+2,2,0.8);
+  // 体
+  g.fillStyle=claude;px(headCx-3.5,headCy+headR-1,7,4);
+  // 腕（スクラッチしてる感じで左右交互に上下）
+  const armL=Math.sin(anT*6)*1.4, armR=Math.sin(anT*6+Math.PI)*1.4;
+  g.fillStyle=cream;
+  px(headCx-6,headCy+headR+armL,1.6,2.2);
+  px(headCx+4.4,headCy+headR+armR,1.6,2.2);
 }
 function hexToRgb(hex){
   hex=hex.replace("#","");
@@ -1097,18 +1171,8 @@ function togglePlay(){
   if(!queue.length)return toast("曲を選んでください");
   vid.paused?vid.play().catch(()=>{}):vid.pause();
 }
-/* スパーク柄／マスコット表示の切り替え。10秒ごとに自動で切り替わり、
-   横フリックでも手動で切り替えられる（手動で切ったら自動切替のタイマーを
-   そこから10秒でリセットし直す） */
-let showMascot=false;
-let mascotTimer=null;
-function flipMascot(){showMascot=!showMascot;}
-function manualFlipMascot(){
-  flipMascot();
-  clearInterval(mascotTimer);
-  mascotTimer=setInterval(flipMascot,10000);
-}
-mascotTimer=setInterval(flipMascot,10000);
+/* スパーク柄／動画／リマちゃんシーンの切り替え（cycleAnMode）は既に上で
+   定義済み。ここでは横フリックをそれに繋ぐだけ */
 
 /* canvasのタップ（再生/一時停止）と横フリック（表示切り替え）を
    同じ要素の上で共存させる。指の移動量で判定を分ける */
@@ -1118,7 +1182,7 @@ function bindTapAndSwipe(el){
   el.addEventListener("pointerup",e=>{
     if(!tracking)return;tracking=false;
     const dx=e.clientX-sx,dy=e.clientY-sy;
-    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5)manualFlipMascot(); // 横フリック
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5)cycleAnMode(true); // 横フリック
     else if(Math.abs(dx)<10&&Math.abs(dy)<10)togglePlay(); // ほぼ動いてなければタップ扱い
   });
   el.addEventListener("pointercancel",()=>{tracking=false;});
@@ -1141,4 +1205,3 @@ openDB().then(reload).then(syncBtns).then(mediaSetup).then(loadBgVideo).catch(e=
 </script>
 </body>
 </html>
-
