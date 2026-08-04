@@ -1010,15 +1010,51 @@ function drawFakeAnalyzer(cv,brightness){
   const offHex=cs.getPropertyValue("--ink3").trim()||"#2a2724";
   const claudeRgb=hexToRgb(claudeHex),offRgb=hexToRgb(offHex);
 
-  for(let row=0;row<AN_ROWS;row++){
-    for(let col=0;col<AN_COLS;col++){
-      const idx=row*AN_COLS+col;
-      const v=brightness[idx]||0;
-      const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
-      // アンバーは使わず、消灯→クロードオレンジのみで
-      // 明るさに応じて無段階（連続的）に色を混ぜる
-      const rgb=lerpRgb(offRgb,claudeRgb,v);
-      g.fillStyle="rgb("+rgb[0]+","+rgb[1]+","+rgb[2]+")";
+  if(showMascot){
+    // マスコット表示中は背景を消灯色だけで敷いて、その上にマスコットだけ出す
+    g.fillStyle="rgb("+offRgb[0]+","+offRgb[1]+","+offRgb[2]+")";
+    g.fillRect(0,0,wCss,hCss);
+    drawMascot(g,offX,gap,cell,claudeHex);
+  }else{
+    for(let row=0;row<AN_ROWS;row++){
+      for(let col=0;col<AN_COLS;col++){
+        const idx=row*AN_COLS+col;
+        const v=brightness[idx]||0;
+        const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
+        // アンバーは使わず、消灯→クロードオレンジのみで
+        // 明るさに応じて無段階（連続的）に色を混ぜる
+        const rgb=lerpRgb(offRgb,claudeRgb,v);
+        g.fillStyle="rgb("+rgb[0]+","+rgb[1]+","+rgb[2]+")";
+        g.fillRect(x,y,cell,cell);
+      }
+    }
+  }
+}
+/* ===== ドット絵マスコット（歩いて左右に往復する） =====
+   Anthropicの公式キャラそのものではなく、それっぽい雰囲気の
+   オリジナルの簡易ドット絵。B=胴体（クロードオレンジ）、E=目（黒）、.=透明 */
+const MASCOT_W=9,MASCOT_H=7;
+const MASCOT_FRAMES=[
+  [".BBBBBBB.","BBBBBBBBB","BBEBBBEBB","BBBBBBBBB","BBBBBBBBB","BBBBBBBBB","B.B.B.B.B"],
+  [".BBBBBBB.","BBBBBBBBB","BBEBBBEBB","BBBBBBBBB","BBBBBBBBB","BBBBBBBBB",".B.B.B.B."],
+];
+function drawMascot(g,offX,gap,cell,claudeHex){
+  const rangeCols=AN_COLS-MASCOT_W;
+  if(rangeCols<=0)return; // 列数が足りない環境では諦めて出さない
+  const cyc=anT*0.6;
+  const pos=(Math.sin(cyc)+1)/2; // 0〜1で左右に往復
+  const startCol=Math.round(pos*rangeCols);
+  const startRow=Math.floor((AN_ROWS-MASCOT_H)/2);
+  const movingRight=Math.cos(cyc)>=0; // 進んでる向きに合わせて反転させる
+  const frame=MASCOT_FRAMES[Math.floor(anT/0.4)%MASCOT_FRAMES.length];
+  for(let r=0;r<MASCOT_H;r++){
+    const rowStr=movingRight?frame[r]:frame[r].split("").reverse().join("");
+    for(let c=0;c<MASCOT_W;c++){
+      const ch=rowStr[c];
+      if(ch===".")continue;
+      const col=startCol+c,row=startRow+r;
+      const x=offX+gap+col*(cell+gap),y=gap+row*(cell+gap);
+      g.fillStyle=ch==="E"?"#1a1006":claudeHex;
       g.fillRect(x,y,cell,cell);
     }
   }
@@ -1061,8 +1097,34 @@ function togglePlay(){
   if(!queue.length)return toast("曲を選んでください");
   vid.paused?vid.play().catch(()=>{}):vid.pause();
 }
-$("#analyzer").addEventListener("click",togglePlay);
-$("#analyzer2").addEventListener("click",togglePlay);
+/* スパーク柄／マスコット表示の切り替え。10秒ごとに自動で切り替わり、
+   横フリックでも手動で切り替えられる（手動で切ったら自動切替のタイマーを
+   そこから10秒でリセットし直す） */
+let showMascot=false;
+let mascotTimer=null;
+function flipMascot(){showMascot=!showMascot;}
+function manualFlipMascot(){
+  flipMascot();
+  clearInterval(mascotTimer);
+  mascotTimer=setInterval(flipMascot,10000);
+}
+mascotTimer=setInterval(flipMascot,10000);
+
+/* canvasのタップ（再生/一時停止）と横フリック（表示切り替え）を
+   同じ要素の上で共存させる。指の移動量で判定を分ける */
+function bindTapAndSwipe(el){
+  let sx=0,sy=0,tracking=false;
+  el.addEventListener("pointerdown",e=>{sx=e.clientX;sy=e.clientY;tracking=true;});
+  el.addEventListener("pointerup",e=>{
+    if(!tracking)return;tracking=false;
+    const dx=e.clientX-sx,dy=e.clientY-sy;
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5)manualFlipMascot(); // 横フリック
+    else if(Math.abs(dx)<10&&Math.abs(dy)<10)togglePlay(); // ほぼ動いてなければタップ扱い
+  });
+  el.addEventListener("pointercancel",()=>{tracking=false;});
+}
+bindTapAndSwipe($("#analyzer"));
+bindTapAndSwipe($("#analyzer2"));
 
 /* ============ boot ============ */
 async function reload(){
