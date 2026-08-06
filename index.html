@@ -48,13 +48,11 @@ body{
     background:var(--ink2);border-right:1px solid var(--line);
   }
   #mainCol{flex:1;min-width:0}
-  /* NOW画面側の表示は横画面だと二重になるので、状態にかかわらず隠す（サイドバー側だけ出す） */
   #pane-now .anToggle,#pane-now .analyzerWrap,#pane-now .videoStage{display:none!important}
 }
 button,input,select{font:inherit;color:inherit}
 button{background:none;border:0;padding:0;cursor:pointer}
 
-/* ---- header ---- */
 header{
   padding:calc(var(--top) + 10px) 16px 10px;
   border-bottom:1px solid var(--line);
@@ -70,7 +68,6 @@ header h1:active{background:var(--ink3)}
 header .sub{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1em}
 header .quota{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--dim)}
 
-/* ---- panes ---- */
 main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .pane{display:none;padding:14px 14px 24px}
 .pane.on{display:block}
@@ -81,7 +78,6 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 }
 .eyebrow::after{content:"";flex:1;height:1px;background:var(--line)}
 
-/* ---- buttons ---- */
 .btn{
   min-height:44px;padding:0 16px;border:1px solid var(--line);border-radius:10px;
   background:var(--ink2);display:inline-flex;align-items:center;justify-content:center;
@@ -95,7 +91,6 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .btn.sm{min-height:36px;padding:0 12px;font-size:13px;font-weight:500}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 
-/* ---- list rows ---- */
 .card{
   display:flex;gap:12px;align-items:center;padding:10px;
   background:var(--ink2);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;
@@ -116,9 +111,6 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 }
 .empty b{display:block;color:var(--fg);font-size:14px;margin-bottom:6px}
 
-/* ---- analyzer（ドットマトリクス風スペクトラム・正方形ドット） ---- */
-/* 切り替えラベルは枠の外（常設）。ドット表示は今まで通りパディング付きの
-   カード、動画表示はパディング無しで横幅いっぱいに広げる別枠にする */
 .anToggle{
   font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--dim);
   margin:18px 0 8px;text-transform:uppercase;
@@ -136,7 +128,6 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 }
 .videoStage video{width:100%;display:block;cursor:pointer}
 
-/* ---- transport ---- */
 #transport{
   border-top:1px solid var(--line);background:var(--ink2);
   padding:8px 12px calc(var(--bot) + 8px);
@@ -158,7 +149,6 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .ctl.big svg{width:23px;height:23px}
 .ctl#bPrev,.ctl#bNext{color:var(--fg)}
 
-/* ---- tabs ---- */
 nav{
   display:flex;border-top:1px solid var(--line);background:var(--ink2);
   padding-bottom:var(--bot);
@@ -172,7 +162,6 @@ nav button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width
   stroke-linecap:round;stroke-linejoin:round}
 nav button.on{color:var(--amber);border-top-color:var(--amber)}
 
-/* ---- sheet ---- */
 #veil{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:40}
 #veil.on{display:block}
 #sheet{
@@ -200,6 +189,20 @@ input[type=text]{
 }
 #toast.on{opacity:1;transform:translate(-50%,0)}
 .hint{font-size:12px;color:var(--dim);line-height:1.6}
+.volRow{display:flex;align-items:center;gap:10px;margin:16px 2px 4px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.volRow input[type=range]{
+  flex:1;height:4px;-webkit-appearance:none;appearance:none;
+  background:var(--ink3);border-radius:2px;outline:none;
+}
+.volRow input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+  background:var(--amber);cursor:pointer;border:0;
+}
+.volRow input[type=range]::-moz-range-thumb{
+  width:18px;height:18px;border-radius:50%;background:var(--amber);cursor:pointer;border:0;
+}
+.volRow .volVal{width:38px;text-align:right;color:var(--fg);flex:none}
+.volRow .volLabel{flex:none}
 </style>
 </head>
 <body>
@@ -221,7 +224,6 @@ input[type=text]{
 </header>
 
 <main>
-  <!-- LIBRARY -->
   <section class="pane on" id="pane-lib">
     <div class="eyebrow">ライブラリ</div>
     <div class="row" style="margin-bottom:14px">
@@ -230,18 +232,17 @@ input[type=text]{
         <input type="file" id="pick" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac" multiple hidden>
       </label>
       <button class="btn" id="fixAll">調べ直す</button>
+      <button class="btn" id="normAll">音量そろえ</button>
     </div>
     <div id="libList"></div>
   </section>
 
-  <!-- PLAYLISTS -->
   <section class="pane" id="pane-pl">
     <div class="eyebrow">再生リスト</div>
     <button class="btn wide" id="newPl" style="margin-bottom:14px">＋ 新しいリストを作る</button>
     <div id="plList"></div>
   </section>
 
-  <!-- NOW PLAYING / EDITOR -->
   <section class="pane" id="pane-now">
     <audio id="vid" preload="metadata"></audio>
     <div>
@@ -253,6 +254,11 @@ input[type=text]{
         <video id="bgVid" muted loop playsinline></video>
       </div>
 
+      <div class="volRow">
+        <span class="volLabel">音量</span>
+        <input type="range" id="volSlider" min="0" max="100" value="100">
+        <span class="volVal" id="volVal">100%</span>
+      </div>
     </div>
   </section>
 </main>
@@ -284,7 +290,6 @@ input[type=text]{
 
 <script>
 "use strict";
-/* ============ storage ============ */
 const DBN="vdeck",DBV=4;let db;
 function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DBN,DBV);
  r.onupgradeneeded=e=>{const d=e.target.result;
@@ -297,7 +302,6 @@ function all(s){return new Promise((res,rej)=>{const r=tx(s,"readonly").getAll()
 function one(s,id){return new Promise((res,rej)=>{const r=tx(s,"readonly").get(id);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
-/* ============ state ============ */
 let VIDEOS=[],PLAYLISTS=[];
 let queue=[],qi=-1,shuffle=false,repeat="off",curURL=null,curVid=null;
 
@@ -309,13 +313,9 @@ function fmt1(t){if(!isFinite(t)||t<0)t=0;const m=Math.floor(t/60),s=(t%60).toFi
 function mb(b){return b>=1073741824?(b/1073741824).toFixed(1)+"GB":Math.round(b/1048576)+"MB";}
 let tT;function toast(m){const e=$("#toast");e.textContent=m;e.classList.add("on");clearTimeout(tT);tT=setTimeout(()=>e.classList.remove("on"),1800);}
 
-/* ============ sheet ============ */
 function sheet(title,opts){
   const s=$("#sheet");s.innerHTML="<h3>"+title+"</h3>";
   opts.forEach(o=>{
-    // ファイル選択を伴う項目は、label forでinputに直結させる。
-    // setTimeout経由で.click()するとiPhone Safariではユーザー操作との
-    // 同期が切れて、ファイル選択ダイアログが開かない（これが今回の不具合の原因）
     if(o.isLabelFor){
       const l=document.createElement("label");l.className="opt";
       l.setAttribute("for",o.isLabelFor);l.textContent=o.label;
@@ -342,8 +342,6 @@ function sheetInput(title,ph,val,fn){
 function closeSheet(){$("#sheet").classList.remove("on");$("#veil").classList.remove("on");}
 $("#veil").onclick=closeSheet;
 
-/* 曲を取り込み直すと中身のIDが変わり、再生リストが古いIDを
-   指したまま迷子になることがある。消えた項目をリストから外す。 */
 async function relink(){
   const byId=new Set(VIDEOS.map(v=>v.id));
   let fixP=0,lostP=0;
@@ -381,8 +379,6 @@ function carDiag(){
   ].map(t=>({label:t,fn:()=>{}})));
 }
 
-/* ヘッダーのVDECKをタップ → 更新メニュー
-   ホーム画面から起動するとアドレスバーが無く、更新手段が無くなるため */
 $("#brand").onclick=()=>{
   sheet("VDECK v1",[
     {label:"再読み込み",fn:()=>location.reload()},
@@ -398,7 +394,6 @@ $("#brand").onclick=()=>{
           await Promise.all(rs.map(r=>r.unregister()));
         }
       }catch(_){}
-      // URLに時刻を付けて、確実に新しいものを取りに行かせる
       const u=location.origin+location.pathname+"?v="+Date.now();
       location.replace(u);
     }},
@@ -415,7 +410,6 @@ $("#brand").onclick=()=>{
     }},
   ]);
 };
-/* タブ切り替え。ボタンを内部で押すのではなく直接切り替える */
 function go(p){
   const btn=$$("nav button").find(b=>b.dataset.p===p);
   $$("nav button").forEach(x=>x.classList.toggle("on",x===btn));
@@ -425,19 +419,16 @@ function go(p){
     const m=$("main");
     if(m){
       m.scrollTop=0;
-      // NOW画面（アナライザーのみ）はスクロールが起きないようにする
       m.style.overflowY=(p==="now")?"hidden":"auto";
     }}
 }
 $$("nav button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.p)));
 
-/* ============ import ============ */
 $("#pick").onchange=async e=>{
   const files=[...e.target.files];e.target.value="";
   if(!files.length)return;
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   const ng=[];const added=[];
-  // 第1段階：とにかく保存する（調査はしない）
   for(const f of files){
     toast("保存中… "+f.name.slice(0,18));
     const id=await store(f);
@@ -445,7 +436,6 @@ $("#pick").onchange=async e=>{
   }
   await reload();
   if(!added.length){report(ng,0);return;}
-  // 第2段階：保存が済んでから長さとサムネを調べる（失敗しても曲は残る）
   toast(added.length+"本 保存しました。長さを調べます…");
   for(const id of added){
     const rec=await one("videos",id);
@@ -484,16 +474,8 @@ async function store(f){
     return null;
   }
 }
-/* 分割保存されたものを1本に組み直す
-   かけらを1個ずつ継ぎ足すと、そのたびに全体を作り直すことになって
-   本数の二乗ぶんの手間がかかる（重すぎる）。
-   かといって、全部のかけらを一気に配列へ貯めてから１回で渡すと、
-   1〜3GBクラスの曲では「かけら全部ぶんの生データ」が一瞬メモリに
-   乗ってしまい、iPhoneのSafariごと落ちる（強制終了→ホーム画面）原因になる。
-   → 少数（16個＝約128MB）ずつまとめて継ぎ足す方式にして、
-     重さとメモリ使用量の両方を抑える。 */
 let blobCache={id:null,blob:null};
-const BLOB_BATCH=16; // 8MBのかけら16個＝約128MBずつ組み直す
+const BLOB_BATCH=16;
 async function blobOf(rec){
   if(!rec)return null;
   if(blobCache.id===rec.id&&blobCache.blob)return blobCache.blob;
@@ -507,7 +489,7 @@ async function blobOf(rec){
       if(batch.length>=BLOB_BATCH||i===rec.chunks-1){
         acc=acc?new Blob([acc,...batch],{type:rec.type||"audio/mpeg"})
              :new Blob(batch,{type:rec.type||"audio/mpeg"});
-        batch=[]; // ここで貯めてた生データを手放す（メモリを返す）
+        batch=[];
       }
     }
     b=acc;
@@ -541,7 +523,6 @@ function seekTo(v,t){return new Promise(r=>{
   try{v.currentTime=t}catch(_){h()}
 });}
 
-/* mp4の「長さのメモ」が嘘のことがあるので、末尾へ飛ばして実測する */
 function trueDuration(v){return new Promise(r=>{
   let f=false;
   const fin=()=>{if(f)return;f=true;
@@ -570,8 +551,8 @@ function probe(src){
     v.onerror=()=>fin({dur:0,err:(v.error&&v.error.code===4)?"codec":"read"});
     v.onloadedmetadata=async()=>{
       try{
-        try{await v.play()}catch(_){}          // iOSにデコードさせる
-        let dur=await trueDuration(v);          // 実測で長さを取る
+        try{await v.play()}catch(_){}
+        let dur=await trueDuration(v);
         try{v.pause()}catch(_){}
         fin({dur});
       }catch(_){fin({dur:0,err:"read"})}
@@ -580,8 +561,6 @@ function probe(src){
   });
 }
 
-
-/* 保存されたデータが本当に揃っているか数える */
 async function diagnose(rec){
   toast("調べてます…");
   let found=0,bytes=0;
@@ -626,7 +605,61 @@ $("#fixAll").onclick=async()=>{
   await reload();toast("全部やり直しました");
 };
 
-/* ============ render ============ */
+/* ===== 音量そろえ =====
+   曲によって音量差があるのを直す機能。以前どこかのセッションで
+   AudioContext＋GainNodeを常時つないで補正する版を作ったことがあるが、
+   その方式だと<audio>の出力をAudioContext経由に付け替えることになり、
+   今回このセッションで散々苦労して撤去した「バックグラウンド再生が
+   止まる」「タップで音がおかしくなる」不具合を再発させかねない。
+   なのでここでは<audio>要素が標準で持ってるvolumeプロパティ
+   （0〜1、下げることしかできない）だけで済ます方式にしてある。
+   測定だけは一時的なAudioContextで行うが、再生経路には一切繋がない
+   （測定用のcontextは使い捨てで、mainのvidには触れない） */
+const TARGET_RMS=0.1;
+let measureCtx=null;
+function ensureMeasureCtx(){
+  if(!measureCtx){
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(AC)measureCtx=new AC();
+  }
+  return measureCtx;
+}
+async function measureLoudness(rec){
+  const ctx=ensureMeasureCtx();
+  if(!ctx)return null;
+  const b=await blobOf(rec);
+  if(!b||b.size>300*1048576)return null;
+  let buf;
+  try{buf=await ctx.decodeAudioData(await b.arrayBuffer());}
+  catch(_){return null;}
+  const ch=buf.getChannelData(0);
+  const step=Math.max(1,Math.floor(ch.length/200000));
+  let sum=0,n=0;
+  for(let i=0;i<ch.length;i+=step){sum+=ch[i]*ch[i];n++;}
+  return Math.sqrt(sum/Math.max(1,n));
+}
+function volFromRms(rms){
+  if(!rms||rms<=0)return 1;
+  return Math.max(0.15,Math.min(1,TARGET_RMS/rms));
+}
+async function normalizeOne(v){
+  toast("音量を測定中… "+v.name);
+  const rms=await measureLoudness(v);
+  if(!rms){toast("測定できませんでした");return;}
+  v.vol=volFromRms(rms);
+  await put("videos",v);await reload();
+  toast(v.name+" の音量 ×"+v.vol.toFixed(2));
+}
+$("#normAll").onclick=async()=>{
+  if(!VIDEOS.length)return;
+  for(const v of VIDEOS.slice()){
+    toast("音量を測定中… "+v.name);
+    const rms=await measureLoudness(v);
+    if(rms){v.vol=volFromRms(rms);await put("videos",v);}
+  }
+  await reload();toast("音量をそろえました");
+};
+
 function cardEl(o){
   const d=document.createElement("div");d.className="card";
   const noImg='<div class="thumb ph"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
@@ -634,7 +667,6 @@ function cardEl(o){
     '<div class="meta"><div class="ttl"></div><div class="sub2"></div></div><button class="more">...</button>';
   d.querySelector(".ttl").textContent=o.title;
   d.querySelector(".sub2").textContent=o.sub;
-  // カードのどこを押しても反応するようにする（前は文字の部分しか効かなかった）
   d.onclick=e=>{if(e.target.closest(".more"))return;o.tap();};
   d.querySelector(".more").onclick=e=>{e.stopPropagation();o.menu()};
   return d;
@@ -643,11 +675,12 @@ function renderLib(){
   const w=$("#libList");w.innerHTML="";
   if(!VIDEOS.length){w.innerHTML='<div class="empty"><b>まだ何もありません</b>上の「曲を取り込む」からmp3などを選んでください。</div>';return;}
   VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt).forEach(v=>{
-    w.appendChild(cardEl({thumb:v.thumb,title:v.name,sub:fmt(v.dur)+" · "+mb(v.size)+(v.data||v.chunks?"":" · 要 再取込"),
+    w.appendChild(cardEl({thumb:v.thumb,title:v.name,sub:fmt(v.dur)+" · "+mb(v.size)+(v.data||v.chunks?"":" · 要 再取込")+(v.vol!=null&&v.vol!==1?" · 音量×"+v.vol.toFixed(2):""),
       tap:()=>playLibraryFrom(v.id),
       menu:()=>sheet(v.name,[
         {label:"再生する",fn:()=>playLibraryFrom(v.id)},
         {label:"再生リストに追加",fn:()=>addToPlaylist({kind:"video",refId:v.id})},
+        {label:"音量をそろえる（測定）",fn:()=>normalizeOne(v)},
         {label:"長さとサムネを調べ直す",fn:()=>repair(v)},
         {label:"診断する（データが揃ってるか）",fn:()=>diagnose(v)},
         {label:"名前を変える",fn:()=>sheetInput("名前を変える","タイトル",v.name,async n=>{v.name=n;await put("videos",v);await reload();})},
@@ -726,8 +759,6 @@ function startPlaylist(p,sh){
   toast(q.length+"曲を再生します");
 }
 
-/* 車のステアリングスイッチ・Bluetooth機器・ロック画面からの操作を受ける */
-/* 画面を消して戻したときに窓口が外れることがあるので張り直す */
 document.addEventListener("visibilitychange",()=>{
   if(!document.hidden){
     mediaSetup();mediaState();mediaPos();
@@ -753,7 +784,6 @@ function mediaSetup(){
     vid.currentTime=(it.start||0)+e.seekTime;});
 }
 
-/* ナビ画面やロック画面に曲名とサムネを出す */
 function mediaInfo(it){
   if(!("mediaSession" in navigator)||!it)return;
   const v=VIDEOS.find(v=>v.id===it.videoId);
@@ -776,10 +806,7 @@ function mediaPos(){
     duration:dur,playbackRate:vid.playbackRate||1,
     position:Math.max(0,Math.min(dur,vid.currentTime-s))});}catch(_){}
 }
-function playQueue(q,i){queue=q;qi=i;go("now");load(true);}
-/* ライブラリから曲を選んだとき、その1曲だけでなくライブラリ全体を
-   キューにする。これで次へ/前へ/シャッフル/リピートが効くようになる。
-   並び順は一覧の表示順（新しく取り込んだ順）に合わせる */
+function playQueue(q,i){queue=q;qi=i;preload={qi:null,videoId:null,url:null};go("now");load(true);}
 function playLibraryFrom(videoId){
   const q=VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt)
     .map(v=>({kind:"video",videoId:v.id,title:v.name,start:0,end:null}));
@@ -787,45 +814,89 @@ function playLibraryFrom(videoId){
   playQueue(q,i>=0?i:0);
 }
 let skipGuard=0;
+/* スマホがスリープ中（画面ロック中）だと、曲が終わってから次の曲データを
+   IndexedDBから読みに行く「その場読み込み」だと間に合わないことがある。
+   音が止まった瞬間にブラウザがこのページのJS実行を後回しにし始めるらしく、
+   読み込みが終わる前にタイムアウトしたように固まってしまう。
+   対策として、今の曲を再生し始めたタイミングで次の曲のデータを
+   あらかじめ用意しておき、曲が終わった瞬間はURLを差し替えるだけで
+   済むようにする（音が鳴ってる間に重い読み込みを終わらせておく） */
+let preload={qi:null,videoId:null,url:null};
+function pickNextQi(){
+  if(repeat==="one")return qi;
+  if(!queue.length)return null;
+  if(shuffle)return queue.length>1?(()=>{let n;do{n=Math.floor(Math.random()*queue.length)}while(n===qi);return n})():0;
+  if(qi<queue.length-1)return qi+1;
+  if(repeat==="all")return 0;
+  return null;
+}
+async function preloadNextTrack(){
+  const nqi=preload.qi!=null?preload.qi:pickNextQi();
+  if(nqi==null||nqi===qi)return;
+  const it=queue[nqi];if(!it)return;
+  if(preload.qi===nqi&&preload.videoId===it.videoId&&preload.url)return; // 用意済み
+  try{
+    const v=await one("videos",it.videoId);
+    if(!v)return;
+    const b=await blobOf(v);
+    if(!b||!b.size)return;
+    if(preload.url)URL.revokeObjectURL(preload.url);
+    preload={qi:nqi,videoId:it.videoId,url:URL.createObjectURL(b)};
+  }catch(_){}
+}
 async function load(auto){
   const it=queue[qi];if(!it)return;
   if(curVid!==it.videoId){
-    const v=await one("videos",it.videoId);
-    if(!v){
-      if(++skipGuard>=queue.length){skipGuard=0;
-        return toast("このリストの曲が見つかりません");}
-      return next();
-    }
-    if(curURL)URL.revokeObjectURL(curURL);
-    const b=await blobOf(v);
-    if(!b||!b.size){
-      if(++skipGuard>=queue.length){skipGuard=0;
-        return toast("曲データが壊れています。取り込み直してください");}
-      return next();
+    let url,v;
+    if(preload.qi===qi&&preload.videoId===it.videoId&&preload.url){
+      // 事前に用意しておいたものを使う。IndexedDBの読み込みを待たずに
+      // ほぼ即座に切り替えられる
+      url=preload.url;
+      v=await one("videos",it.videoId);
+      preload={qi:null,videoId:null,url:null};
+      if(!v){
+        if(++skipGuard>=queue.length){skipGuard=0;
+          return toast("このリストの曲が見つかりません");}
+        return next();
+      }
+    }else{
+      v=await one("videos",it.videoId);
+      if(!v){
+        if(++skipGuard>=queue.length){skipGuard=0;
+          return toast("このリストの曲が見つかりません");}
+        return next();
+      }
+      const b=await blobOf(v);
+      if(!b||!b.size){
+        if(++skipGuard>=queue.length){skipGuard=0;
+          return toast("曲データが壊れています。取り込み直してください");}
+        return next();
+      }
+      url=URL.createObjectURL(b);
     }
     skipGuard=0;
-    curURL=URL.createObjectURL(b);curVid=it.videoId;vid.src=curURL;vid.load();
+    if(curURL)URL.revokeObjectURL(curURL);
+    curURL=url;curVid=it.videoId;vid.src=curURL;vid.load();
+    vid.volume=(v.vol!=null?v.vol:1);
+    syncVolUI();
   }
   $("#miniTitle").textContent=it.title;
   mediaInfo(it);
-  // 巨大な曲の深い位置までシークすると、iPhone側が内部で再バッファして
-  // loadedmetadataをもう一度発火させることがある。onloadedmetadata=seek のままだと
-  // そのたびに頭出し処理が再実行され「頭に巻き戻る→少し再生→また巻き戻る」を繰り返す。
-  // 一度実行したら必ず窓口を外して、以降のloadedmetadataでは反応しないようにする。
   const seek=()=>{
     vid.onloadedmetadata=null;
     try{vid.currentTime=it.start||0}catch(_){}
     if(auto)vid.play().catch(()=>toast("再生ボタンを押してください"));
   };
   if(vid.readyState>=1)seek();else vid.onloadedmetadata=seek;
+  preloadNextTrack(); // 次の次に備えて、今の曲の「次」を先読みしておく
 }
 function next(){
   if(repeat==="one")return load(true);
   if(!queue.length)return;
-  if(shuffle){qi=queue.length>1?(()=>{let n;do{n=Math.floor(Math.random()*queue.length)}while(n===qi);return n})():0;return load(true);}
-  if(qi<queue.length-1){qi++;return load(true);}
-  if(repeat==="all"){qi=0;return load(true);}
-  vid.pause();
+  const nqi=preload.qi!=null?preload.qi:pickNextQi();
+  if(nqi==null){vid.pause();return;}
+  qi=nqi;
+  load(true);
 }
 function prev(){
   const it=queue[qi];
@@ -834,9 +905,18 @@ function prev(){
 }
 $("#bPlay").onclick=()=>{if(!queue.length)return toast("曲を選んでください");vid.paused?vid.play().catch(()=>{}):vid.pause();};
 $("#bNext").onclick=next;$("#bPrev").onclick=prev;
-$("#bShuffle").onclick=()=>{shuffle=!shuffle;syncBtns();toast(shuffle?"ランダム ON":"ランダム OFF")};
-$("#bRepeat").onclick=()=>{repeat=repeat==="off"?"all":repeat==="all"?"one":"off";syncBtns();
-  toast(repeat==="off"?"繰り返し OFF":repeat==="all"?"全部くり返し":"1本くり返し")};
+$("#bShuffle").onclick=()=>{shuffle=!shuffle;preload={qi:null,videoId:null,url:null};syncBtns();toast(shuffle?"ランダム ON":"ランダム OFF")};
+function setRepeat(mode){
+  repeat=mode;preload={qi:null,videoId:null,url:null};syncBtns();
+  toast(repeat==="off"?"繰り返し OFF":repeat==="all"?"リスト全体をリピート":"今の曲だけリピート");
+}
+$("#bRepeat").onclick=()=>{
+  sheet("繰り返し",[
+    {label:(repeat==="off"?"● ":"○ ")+"繰り返しなし",fn:()=>setRepeat("off")},
+    {label:(repeat==="all"?"● ":"○ ")+"リスト全体をリピート",fn:()=>setRepeat("all")},
+    {label:(repeat==="one"?"● ":"○ ")+"今の曲だけリピート",fn:()=>setRepeat("one")},
+  ]);
+};
 const IC_PLAY='<path d="M7 4.5v15a.6.6 0 0 0 .93.5l11.5-7.5a.6.6 0 0 0 0-1L7.93 4a.6.6 0 0 0-.93.5z" fill="currentColor" stroke="none"/>';
 const IC_PAUSE='<path d="M8 4.5h3v15H8zM13 4.5h3v15h-3z" fill="currentColor" stroke="none"/>';
 const IC_REPEAT='<path d="M17 2l4 4-4 4"/><path d="M3 12V10a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/>';
@@ -848,9 +928,38 @@ function syncBtns(){
   $("#icPlay").innerHTML=vid.paused?IC_PLAY:IC_PAUSE;
   $("#bPlay").setAttribute("aria-label",vid.paused?"再生":"一時停止");
 }
+
+/* ===== 再生中の音量スライダー =====
+   音量そろえ（自動測定）だけだと合わない曲があるので、再生しながら
+   その場で微調整できるようにする。vid.volumeを直接いじるだけなので
+   （AudioContext等は経由しない）バックグラウンド再生への影響は無い。
+   ドラッグ後、少し待ってからその曲のvolとして保存し直す（曲ごとに記憶） */
+const volSlider=$("#volSlider"),volVal=$("#volVal");
+let volSaveTimer=null;
+function syncVolUI(){
+  const v=Math.round((vid.volume||0)*100);
+  volSlider.value=v;
+  volVal.textContent=v+"%";
+}
+volSlider.oninput=()=>{
+  const v=Math.max(0,Math.min(100,parseInt(volSlider.value,10)||0))/100;
+  vid.volume=v;
+  volVal.textContent=Math.round(v*100)+"%";
+  clearTimeout(volSaveTimer);
+  volSaveTimer=setTimeout(saveCurrentVol,500);
+};
+async function saveCurrentVol(){
+  if(!curVid)return;
+  const rec=await one("videos",curVid);
+  if(!rec)return;
+  rec.vol=vid.volume;
+  await put("videos",rec);
+  await reload();
+  toast("この曲の音量を "+Math.round(vid.volume*100)+"% で覚えました");
+}
+
 vid.onplay=vid.onpause=()=>{
   syncBtns();mediaState();mediaPos();
-  // 背景動画は音声に合わせて再生・一時停止する（動画モードの時だけ）
   if(anMode==="video"){
     if(vid.paused){$("#bgVid").pause();$("#bgVid2").pause();}
     else{$("#bgVid").play().catch(()=>{});$("#bgVid2").play().catch(()=>{});}
@@ -876,9 +985,6 @@ $("#tBar").onclick=e=>{
   vid.currentTime=s+(en-s)*p;
 };
 
-/* ===== 表示モードの切り替え：スパーク／背景動画／リマちゃんシーン =====
-   3つを1つの輪として順番に切り替える。動画が未登録の間は
-   「動画」を自動でスキップする。切り替えラベルは枠の外に常設 */
 const AN_ORDER=["sparks","video","rima"];
 let anMode="sparks";
 let bgVideoURL=null;
@@ -887,7 +993,7 @@ function nextAnMode(cur){
   let idx=AN_ORDER.indexOf(cur);
   for(let i=0;i<AN_ORDER.length;i++){
     idx=(idx+1)%AN_ORDER.length;
-    if(AN_ORDER[idx]==="video"&&!hasBgVideo())continue; // 動画が無ければ飛ばす
+    if(AN_ORDER[idx]==="video"&&!hasBgVideo())continue;
     return AN_ORDER[idx];
   }
   return cur;
@@ -908,20 +1014,14 @@ function applyAnMode(){
     $("#bgVid").pause();$("#bgVid2").pause();
   }
 }
-function cycleAnMode(manual){
+function cycleAnMode(){
   anMode=nextAnMode(anMode);
   applyAnMode();
-  if(manual){
-    clearInterval(anTimer);
-    anTimer=setInterval(()=>cycleAnMode(false),10000);
-  }
 }
-let anTimer=setInterval(()=>cycleAnMode(false),10000);
 $$("#anCapNow, #anCapSide").forEach(el=>{
-  el.onclick=()=>cycleAnMode(true);
+  el.onclick=()=>cycleAnMode();
 });
 
-/* 背景動画の保存（既存のチャンク保存の仕組みをそのまま流用） */
 async function storeBgVideo(f){
   const old=await one("bgvideo","main");
   if(old&&old.chunks)for(let i=0;i<old.chunks;i++){try{await del("chunks","main:"+i)}catch(_){}}
@@ -956,7 +1056,6 @@ async function loadBgVideo(){
 $("#bgVid").addEventListener("click",togglePlay);
 $("#bgVid2").addEventListener("click",togglePlay);
 
-/* リマちゃんの顔画像。動画と違って小さいので分割せず、そのままBlobで保存する */
 let rimaFaceImg=null,rimaFaceURL=null;
 async function storeRimaFace(f){
   try{
@@ -986,25 +1085,16 @@ $("#pickRimaFace").onchange=async e=>{
   if(ok){await loadRimaFace();toast("リマちゃんの顔を更新しました");}
 };
 
-/* ===== 偽アナライザー（音は一切拾わない、見た目だけの演出） =====
-   ランダムに選んだ60個のドットがクロードオレンジに点灯し、3秒かけて
-   じわっと暗くなって消える。これを3グループ用意し、1秒ずつずらして
-   スタートさせることで、常にどこかで点灯・どこかで消えかけている
-   状態が重なり合う。AudioContextやcaptureStreamは一切使わないので、
-   Safari非対応もバックグラウンド再生への影響も、タップで音がおかしく
-   なる不具合も、そもそも原理的に起こりようがない */
 let mpTick=0;
 const AN_COLS=23,AN_ROWS=25;
 const AN_TOTAL=AN_COLS*AN_ROWS;
 let anT=0;
 
-const SPARK_DUR=3;     // 点灯から消えるまでの秒数
-const SPARK_COUNT=40;  // 1回の点灯で光らせるドット数
-const GROUP_GAP=1;     // グループごとのスタートずらし（秒）
-// 3グループぶん、次に発火する時刻と現在光っているドットを管理する
+const SPARK_DUR=3;
+const SPARK_COUNT=40;
+const GROUP_GAP=1;
 const sparkGroups=[0,1,2].map(i=>({nextFire:i*GROUP_GAP,sparks:[]}));
 
-/* 0〜total-1からn個の重複なしランダムなインデックスを選ぶ */
 function pickRandomIdx(n,total){
   const arr=Array.from({length:total},(_,i)=>i);
   for(let i=0;i<n;i++){
@@ -1017,23 +1107,18 @@ function updateSparks(now){
   for(const g of sparkGroups){
     if(now>=g.nextFire){
       for(const idx of pickRandomIdx(SPARK_COUNT,AN_TOTAL))g.sparks.push({idx,start:g.nextFire});
-      g.nextFire+=SPARK_DUR; // 発火間隔＝フェード時間なので、継ぎ目なく次のセットに切り替わる
+      g.nextFire+=SPARK_DUR;
     }
-    g.sparks=g.sparks.filter(s=>now-s.start<SPARK_DUR); // 消え終わったものは間引く
+    g.sparks=g.sparks.filter(s=>now-s.start<SPARK_DUR);
   }
 }
 function drawFakeAnalyzer(cv,brightness){
   if(!cv)return;
-  // 親要素（パディング持ち）ではなく、canvas自身のレイアウト幅を測る。
-  // 親のrectで測るとパディング込みの幅を丸ごとcanvasに与えてしまい、
-  // その分だけ右にはみ出して見えていた（これが「まだ右寄り」の正体）
   const rect=cv.getBoundingClientRect();
   const dpr=Math.min(2,window.devicePixelRatio||1);
   const wCss=Math.max(1,Math.round(rect.width));
-  if(wCss<=1)return; // 非表示中は幅が取れないので描かない
+  if(wCss<=1)return;
 
-  // ドットを正方形にするため、まず横幅からマス目の一辺を決め、
-  // 縦の長さはその一辺×行数で後から決める
   const gap=3;
   const cell=(wCss-gap*(AN_COLS+1))/AN_COLS;
   const hCss=Math.round(cell*AN_ROWS+gap*(AN_ROWS+1));
@@ -1046,7 +1131,6 @@ function drawFakeAnalyzer(cv,brightness){
   g.setTransform(dpr,0,0,dpr,0,0);
   g.clearRect(0,0,wCss,hCss);
 
-  // 端数のズレで片側に寄って見えないよう、余りを左右均等に振り分ける（念のため）
   const totalW=AN_COLS*cell+(AN_COLS+1)*gap;
   const offX=(wCss-totalW)/2;
 
@@ -1063,8 +1147,6 @@ function drawFakeAnalyzer(cv,brightness){
         const idx=row*AN_COLS+col;
         const v=brightness[idx]||0;
         const x=offX+gap+col*(cell+gap), y=gap+row*(cell+gap);
-        // アンバーは使わず、消灯→クロードオレンジのみで
-        // 明るさに応じて無段階（連続的）に色を混ぜる
         const rgb=lerpRgb(offRgb,claudeRgb,v);
         g.fillStyle="rgb("+rgb[0]+","+rgb[1]+","+rgb[2]+")";
         g.fillRect(x,y,cell,cell);
@@ -1072,16 +1154,11 @@ function drawFakeAnalyzer(cv,brightness){
     }
   }
 }
-/* ===== リマちゃんシーン：DJ×ミラーボール（8bit風） =====
-   スパーク用の23×25マスとは別に、もっと細かい仮想ピクセルで
-   キャンバス全体に絵を描く。リマちゃんの見た目は「白っぽい丸顔・
-   閉じた目・小さな笑み」で、あわせてヘッドホンを乗せてDJ風にしてある。
-   星の位置は固定シードで作り、明滅だけ時間で揺らす */
 const RIMA_STAR_SEED=Array.from({length:14},(_,i)=>({
   x:((i*53+7)%97)/97, y:((i*31+11)%53)/53, ph:i*1.3,
 }));
 function drawRimaScene(g,wCss,hCss){
-  const PXW=46;                              // 横方向の仮想ピクセル数（増やすと解像度アップ）
+  const PXW=46;
   const PXH=Math.max(1,Math.round(PXW*hCss/wCss));
   const pw=wCss/PXW, ph=hCss/PXH;
   const px=(x,y,w,h)=>g.fillRect(Math.round(x)*pw,Math.round(y)*ph,Math.ceil((w||1)*pw),Math.ceil((h||1)*ph));
@@ -1094,10 +1171,8 @@ function drawRimaScene(g,wCss,hCss){
   const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
   const cream="#efe6d8";
 
-  // 背景（クラブの暗がり）
   g.fillStyle=ink;g.fillRect(0,0,wCss,hCss);
 
-  // 星のきらめき（上半分だけに散らす）
   g.fillStyle=dim;
   RIMA_STAR_SEED.forEach(s=>{
     const tw=(Math.sin(anT*2+s.ph)+1)/2;
@@ -1105,8 +1180,6 @@ function drawRimaScene(g,wCss,hCss){
     px(s.x*PXW,s.y*PXH*0.5,1,1);
   });
 
-  // ミラーボール（中心から半径判定で円を作り、市松模様でファセットを表現。
-  // 時間でファセットのON/OFFをずらして回転してるように見せる）
   const bx=PXW*0.5, by=PXH*0.2, br=4;
   const spin=Math.floor(anT*3);
   for(let y=-br;y<=br;y++)for(let x=-br;x<=br;x++){
@@ -1115,43 +1188,36 @@ function drawRimaScene(g,wCss,hCss){
     g.fillStyle=on?"#e8e2d6":"#8a8578";
     px(bx+x,by+y,1,1);
   }
-  g.fillStyle=line;px(bx,0,1,by-br); // つり下げる糸
+  g.fillStyle=line;px(bx,0,1,by-br);
 
-  // ミラーボールからの反射光（明滅する斜めの光の筋）
   const flick=(Math.sin(anT*5)+1)/2;
   if(flick>0.6){
     g.fillStyle=amber;
     px(bx-10,by+3,2,1);px(bx+9,by+4,2,1);
   }
 
-  // DJブース
   const boothY=PXH*0.72, boothH=PXH*0.16, boothX=PXW*0.22, boothW=PXW*0.56;
   g.fillStyle=line;px(boothX,boothY,boothW,boothH);
   g.fillStyle="#100f0e";px(boothX+2,boothY+2,boothW-4,boothH-5);
-  // ターンテーブル2枚
   g.fillStyle="#1c1a18";px(boothX+4,boothY+3,6,4);px(boothX+boothW-10,boothY+3,6,4);
   g.fillStyle=claude;px(boothX+6,boothY+4,2,2);px(boothX+boothW-8,boothY+4,2,2);
 
-  // ビートに合わせて広がって消えるリング（ブースの前面から）
-  const beatT=anT%1.2,beatP=beatT/1.2;
-  if(beatP<0.9){
-    const rr=2+beatP*14, ra=1-beatP;
-    g.strokeStyle="rgba("+hexToRgb(claude).join(",")+","+(ra*0.6).toFixed(2)+")";
-    g.lineWidth=Math.max(1,ph*0.6);
-    g.beginPath();g.arc((bx)*pw,(boothY)*ph,rr*pw,0,Math.PI*2);g.stroke();
-  }
+  // 4拍子のリズムで下に弾むイメージ（1拍目だけ強めに弾む）
+  const BEAT_LEN=0.55;
+  const beatPos=(anT/BEAT_LEN)%4;
+  const beatIdx=Math.floor(beatPos);
+  const bt=beatPos-beatIdx;
+  const beatAccent=beatIdx===0?1:0.55;
+  const bounce=Math.pow(Math.sin(Math.PI*bt),0.6)*beatAccent;
 
-  // リマちゃん（ブースの向こう側で頭が揺れる。腕はスクラッチするみたいに上下）
-  const bob=Math.sin(anT*3)*0.6;
-  const headCx=(PXW*0.5)*pw, headCy=(PXH*0.52+bob)*ph, headR=5.2*pw;
+  const headR=5.2*pw;
+  const headCx=(PXW*0.5)*pw, headCy=(PXH*0.52)*ph + bounce*headR*0.4;
   const circle=(cx,cy,r)=>{g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.fill();};
 
   if(rimaFaceImg){
-    // 顔は登録された画像をそのまま使う（うちの手描きでは寄せきれんかったので）
     const d=headR*2.3;
     g.drawImage(rimaFaceImg,headCx-d/2,headCy-d/2,d,d);
   }else{
-    // まだ画像が無い間の仮表示（8bitにはせず滑らかな円弧のまま）
     g.fillStyle=cream;circle(headCx,headCy,headR);
     g.strokeStyle="#2a2015";g.lineWidth=Math.max(1,headR*0.12);g.lineCap="round";
     g.beginPath();g.arc(headCx-headR*0.42,headCy-headR*0.05,headR*0.22,Math.PI*0.15,Math.PI*0.85);g.stroke();
@@ -1159,22 +1225,28 @@ function drawRimaScene(g,wCss,hCss){
     g.beginPath();g.arc(headCx,headCy+headR*0.28,headR*0.32,Math.PI*0.12,Math.PI*0.88);g.stroke();
   }
 
-  // ヘッドホン（バンド＋左右のイヤーパッド）は、画像の顔・仮表示どちらの上にも重ねて描く
+  // ヘッドホン（16bit風：ドットを細かく・バンドを二重にして視認性を上げる）
+  const hpUnit=Math.max(1,headR*0.09);
+  const hpBandR1=headR*1.16, hpBandR2=headR*1.02;
+  const hpSteps=18;
+  const hpAngStart=Math.PI*1.05, hpAngEnd=Math.PI*1.95;
   g.fillStyle=claude;
-  g.lineWidth=headR*0.3;g.strokeStyle=claude;
-  g.beginPath();g.arc(headCx,headCy,headR*1.08,Math.PI*1.08,Math.PI*1.92);g.stroke();
-  circle(headCx-headR*0.98,headCy-headR*0.05,headR*0.28);
-  circle(headCx+headR*0.98,headCy-headR*0.05,headR*0.28);
-
-  // 体
-  g.fillStyle=claude;
-  g.beginPath();g.ellipse(headCx,headCy+headR*1.35,headR*0.72,headR*0.5,0,0,Math.PI*2);g.fill();
-
-  // 腕（スクラッチしてる感じで左右交互に上下）
-  const armL=Math.sin(anT*6)*1.4, armR=Math.sin(anT*6+Math.PI)*1.4;
-  g.fillStyle=cream;
-  circle(headCx-headR*1.15,headCy+headR*1.3+armL*ph,headR*0.24);
-  circle(headCx+headR*1.15,headCy+headR*1.3+armR*ph,headR*0.24);
+  for(let i=0;i<hpSteps;i++){
+    const a=hpAngStart+(hpAngEnd-hpAngStart)*(i/(hpSteps-1));
+    const cosA=Math.cos(a),sinA=Math.sin(a);
+    [hpBandR1,hpBandR2].forEach(r=>{
+      const hx=headCx+cosA*r, hy=headCy+sinA*r;
+      g.fillRect(Math.round(hx-hpUnit/2),Math.round(hy-hpUnit/2),Math.ceil(hpUnit),Math.ceil(hpUnit));
+    });
+  }
+  const hpEarOuter=headR*0.58, hpEarInner=headR*0.34;
+  [-1,1].forEach(side=>{
+    const ex=headCx+side*headR*0.98, ey=headCy-headR*0.05;
+    g.fillStyle=claude;
+    g.fillRect(ex-hpEarOuter/2,ey-hpEarOuter/2,hpEarOuter,hpEarOuter);
+    g.fillStyle=ink;
+    g.fillRect(ex-hpEarInner/2,ey-hpEarInner/2,hpEarInner,hpEarInner);
+  });
 }
 function hexToRgb(hex){
   hex=hex.replace("#","");
@@ -1190,17 +1262,16 @@ function lerpRgb(a,b,t){
   ];
 }
 (function analyzerLoop(){
-  const dt=(vid.paused?0.25:1)*0.016; // 止まってる時はゆっくりに落として控えめにする
+  const dt=(vid.paused?0.25:1)*0.016;
   anT+=dt;
   updateSparks(anT);
 
-  // 3グループぶんのドットの明るさをまとめて計算（重なったら明るい方を採用）
   const brightness=new Float32Array(AN_TOTAL);
   for(const g of sparkGroups){
     for(const s of g.sparks){
       const elapsed=anT-s.start;
       if(elapsed<0||elapsed>SPARK_DUR)continue;
-      const v=Math.pow(1-elapsed/SPARK_DUR,1.4); // じわっと減衰するカーブ
+      const v=Math.pow(1-elapsed/SPARK_DUR,1.4);
       if(v>brightness[s.idx])brightness[s.idx]=v;
     }
   }
@@ -1209,31 +1280,24 @@ function lerpRgb(a,b,t){
   requestAnimationFrame(analyzerLoop);
 })();
 
-/* 偽アナライザー部分をタップしたら再生／一時停止を切り替える */
 function togglePlay(){
   if(!queue.length)return toast("曲を選んでください");
   vid.paused?vid.play().catch(()=>{}):vid.pause();
 }
-/* スパーク柄／動画／リマちゃんシーンの切り替え（cycleAnMode）は既に上で
-   定義済み。ここでは横フリックをそれに繋ぐだけ */
-
-/* canvasのタップ（再生/一時停止）と横フリック（表示切り替え）を
-   同じ要素の上で共存させる。指の移動量で判定を分ける */
 function bindTapAndSwipe(el){
   let sx=0,sy=0,tracking=false;
   el.addEventListener("pointerdown",e=>{sx=e.clientX;sy=e.clientY;tracking=true;});
   el.addEventListener("pointerup",e=>{
     if(!tracking)return;tracking=false;
     const dx=e.clientX-sx,dy=e.clientY-sy;
-    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5)cycleAnMode(true); // 横フリック
-    else if(Math.abs(dx)<10&&Math.abs(dy)<10)togglePlay(); // ほぼ動いてなければタップ扱い
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5)cycleAnMode();
+    else if(Math.abs(dx)<10&&Math.abs(dy)<10)togglePlay();
   });
   el.addEventListener("pointercancel",()=>{tracking=false;});
 }
 bindTapAndSwipe($("#analyzer"));
 bindTapAndSwipe($("#analyzer2"));
 
-/* ============ boot ============ */
 async function reload(){
   [VIDEOS,PLAYLISTS]=await Promise.all([all("videos"),all("playlists")]);
   renderLib();renderPl();
