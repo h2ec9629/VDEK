@@ -806,7 +806,7 @@ function mediaPos(){
     duration:dur,playbackRate:vid.playbackRate||1,
     position:Math.max(0,Math.min(dur,vid.currentTime-s))});}catch(_){}
 }
-function playQueue(q,i){queue=q;qi=i;preload={qi:null,videoId:null,url:null};go("now");load(true);}
+function playQueue(q,i){queue=q;qi=i;preload={qi:null,videoId:null,url:null};shuffleBag=[];go("now");load(true);}
 function playLibraryFrom(videoId){
   const q=VIDEOS.slice().sort((a,b)=>b.addedAt-a.addedAt)
     .map(v=>({kind:"video",videoId:v.id,title:v.name,start:0,end:null}));
@@ -822,10 +822,34 @@ let skipGuard=0;
    あらかじめ用意しておき、曲が終わった瞬間はURLを差し替えるだけで
    済むようにする（音が鳴ってる間に重い読み込みを終わらせておく） */
 let preload={qi:null,videoId:null,url:null};
+/* ===== ランダム再生の偏り対策 =====
+   以前はMath.random()で毎回完全ランダムに選んでいた（直前の曲だけ除外）。
+   これだと数学的には均等でも、体感では同じ曲が短時間に何度も当たったり
+   逆に全然出てこない曲が出たりする（「トランプの山を毎回シャッフルし直す」
+   方式の宿命）。なので「山（bag）を1回作って端から引いていき、山が空に
+   なったらまた作り直す」方式に変更。これで全曲を1周してから次の1周に
+   入るようになり、体感の偏りが減る */
+let shuffleBag=[];
+function refillShuffleBag(avoidIdx){
+  const arr=queue.map((_,i)=>i);
+  for(let i=arr.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  if(arr.length>1&&arr[0]===avoidIdx){
+    const swapAt=1+Math.floor(Math.random()*(arr.length-1));
+    [arr[0],arr[swapAt]]=[arr[swapAt],arr[0]];
+  }
+  shuffleBag=arr;
+}
 function pickNextQi(){
   if(repeat==="one")return qi;
   if(!queue.length)return null;
-  if(shuffle)return queue.length>1?(()=>{let n;do{n=Math.floor(Math.random()*queue.length)}while(n===qi);return n})():0;
+  if(shuffle){
+    if(queue.length<=1)return 0;
+    if(!shuffleBag.length)refillShuffleBag(qi);
+    return shuffleBag.shift();
+  }
   if(qi<queue.length-1)return qi+1;
   if(repeat==="all")return 0;
   return null;
@@ -905,7 +929,7 @@ function prev(){
 }
 $("#bPlay").onclick=()=>{if(!queue.length)return toast("曲を選んでください");vid.paused?vid.play().catch(()=>{}):vid.pause();};
 $("#bNext").onclick=next;$("#bPrev").onclick=prev;
-$("#bShuffle").onclick=()=>{shuffle=!shuffle;preload={qi:null,videoId:null,url:null};syncBtns();toast(shuffle?"ランダム ON":"ランダム OFF")};
+$("#bShuffle").onclick=()=>{shuffle=!shuffle;preload={qi:null,videoId:null,url:null};shuffleBag=[];syncBtns();toast(shuffle?"ランダム ON":"ランダム OFF")};
 function setRepeat(mode){
   repeat=mode;preload={qi:null,videoId:null,url:null};syncBtns();
   toast(repeat==="off"?"繰り返し OFF":repeat==="all"?"リスト全体をリピート":"今の曲だけリピート");
@@ -985,7 +1009,7 @@ $("#tBar").onclick=e=>{
   vid.currentTime=s+(en-s)*p;
 };
 
-const AN_ORDER=["sparks","video","rima"];
+const AN_ORDER=["sparks","video","rima","stage"];
 let anMode="sparks";
 let bgVideoURL=null;
 function hasBgVideo(){return !!$("#bgVid").src;}
@@ -1004,7 +1028,7 @@ function applyAnMode(){
   $("#dotsBoxSide").classList.toggle("on",!isVideo);
   $("#videoBoxNow").classList.toggle("on",isVideo);
   $("#videoBoxSide").classList.toggle("on",isVideo);
-  const nextLabel={sparks:"動画",video:"リマちゃん",rima:"ドット"}[anMode];
+  const nextLabel={sparks:"動画",video:"リマちゃん",rima:"ステージ",stage:"ドット"}[anMode];
   const label="⇄ "+nextLabel;
   $("#anSwitch").textContent=label;
   $("#anSwitch2").textContent=label;
@@ -1056,7 +1080,14 @@ async function loadBgVideo(){
 $("#bgVid").addEventListener("click",togglePlay);
 $("#bgVid2").addEventListener("click",togglePlay);
 
+const RIMA_FACE_DATA="data:image/jpeg;base64,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";
+// 画像取り込みが反映されない不具合の暫定対応：貼ってもらった顔画像を
+// 初期状態のデフォルト顔として埋め込んでおく（IndexedDBにカスタム画像が
+// あればloadRimaFace()側でそちらに上書きされる）
 let rimaFaceImg=null,rimaFaceURL=null;
+const defaultFaceImg=new Image();
+defaultFaceImg.src=RIMA_FACE_DATA;
+rimaFaceImg=defaultFaceImg;
 async function storeRimaFace(f){
   try{
     await put("rimaface",{id:"main",blob:f,type:f.type||"image/png",addedAt:Date.now()});
@@ -1141,6 +1172,8 @@ function drawFakeAnalyzer(cv,brightness){
 
   if(anMode==="rima"){
     drawRimaScene(g,wCss,hCss);
+  }else if(anMode==="stage"){
+    drawStageScene(g,wCss,hCss);
   }else{
     for(let row=0;row<AN_ROWS;row++){
       for(let col=0;col<AN_COLS;col++){
@@ -1212,7 +1245,18 @@ function drawRimaScene(g,wCss,hCss){
 
   const headR=5.2*pw;
   const headCx=(PXW*0.5)*pw, headCy=(PXH*0.52)*ph + bounce*headR*0.4;
-  const circle=(cx,cy,r)=>{g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.fill();};
+  drawRimaHead(g,headCx,headCy,headR,false,true);
+}
+function drawRimaHead(g,cx,cy,headR,mirror,showHeadphones){
+  const cs=getComputedStyle(document.body);
+  const ink=cs.getPropertyValue("--ink").trim()||"#141312";
+  const claude=cs.getPropertyValue("--claude-orange").trim()||"#da7756";
+  const cream="#efe6d8";
+  const circle=(x,y,r)=>{g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill();};
+  const headCx=cx,headCy=cy;
+
+  g.save();
+  if(mirror){g.translate(cx,cy);g.scale(-1,1);g.translate(-cx,-cy);}
 
   if(rimaFaceImg){
     const d=headR*2.3;
@@ -1225,6 +1269,7 @@ function drawRimaScene(g,wCss,hCss){
     g.beginPath();g.arc(headCx,headCy+headR*0.28,headR*0.32,Math.PI*0.12,Math.PI*0.88);g.stroke();
   }
 
+  if(showHeadphones){
   // ヘッドホン（16bit風：ドットを細かく・バンドを二重にして視認性を上げる）
   const hpUnit=Math.max(1,headR*0.09);
   const hpBandR1=headR*1.16, hpBandR2=headR*1.02;
@@ -1247,6 +1292,100 @@ function drawRimaScene(g,wCss,hCss){
     g.fillStyle=ink;
     g.fillRect(ex-hpEarInner/2,ey-hpEarInner/2,hpEarInner,hpEarInner);
   });
+  }
+  g.restore();
+}
+function drawStageScene(g,wCss,hCss){
+  // 8bit風の横スクロールアクションステージ。リマちゃんは画面固定、
+  // 背景・地面・障害物が左へ流れることで「右へ進行している」動きを表す。
+  // マリオそのものの絵は著作物なので使わず、レンガブロック／土管といった
+  // ジャンルの一般的な意匠だけをアプリのテーマカラーで再構成している。
+  const unit=Math.max(2,wCss/60);
+  const cs=getComputedStyle(document.body);
+  const ink=cs.getPropertyValue("--ink").trim()||"#141312";
+  const ink3=cs.getPropertyValue("--ink3").trim()||"#2a2724";
+  const line=cs.getPropertyValue("--line").trim()||"#3a3633";
+  const claude=cs.getPropertyValue("--claude-orange").trim()||"#da7756";
+  const amber=cs.getPropertyValue("--amber").trim()||"#e8a33d";
+  const cream="#efe6d8";
+
+  g.fillStyle=ink;g.fillRect(0,0,wCss,hCss);
+
+  // 行動サイクル：走る→ジャンプ→ダッシュ→走る…をループ
+  const CYCLE=4.4;
+  const cyclePos=anT%CYCLE;
+  let action="run",actionT=0;
+  if(cyclePos<2.2){action="run";actionT=cyclePos/2.2;}
+  else if(cyclePos<2.7){action="jump";actionT=(cyclePos-2.2)/0.5;}
+  else if(cyclePos<3.6){action="dash";actionT=(cyclePos-2.7)/0.9;}
+  else{action="run";actionT=(cyclePos-3.6)/0.8;}
+  const speedMul=action==="dash"?1.9:1;
+
+  // 遠景の雲（進行方向＝右なので、背景は左へゆっくり流れる）
+  const farSpeed=unit*1.6*speedMul, farPeriod=unit*14;
+  const farOff=(anT*farSpeed)%farPeriod;
+  g.fillStyle=ink3;
+  for(let wx=-farPeriod;wx<wCss+farPeriod;wx+=farPeriod){
+    const x=wx-farOff;
+    g.fillRect(x,hCss*0.3,unit*7,unit*2.4);
+    g.fillRect(x+unit*2,hCss*0.26,unit*3,unit*1.6);
+  }
+
+  // 地面（レンガ調の目地パターン）
+  const groundY=hCss*0.8;
+  g.fillStyle=line;g.fillRect(0,groundY,wCss,hCss-groundY);
+  const brickSize=unit*3;
+  const groundSpeed=unit*7*speedMul;
+  const groundOff=(anT*groundSpeed)%brickSize;
+  g.strokeStyle=ink3;g.lineWidth=Math.max(1,unit*0.3);
+  for(let wx=-brickSize;wx<wCss+brickSize;wx+=brickSize){
+    const x=wx-groundOff;
+    g.strokeRect(x,groundY+unit*0.6,brickSize,brickSize*0.6);
+  }
+
+  // 障害物：浮遊レンガブロックと土管（ジャンルの一般的な意匠。左へ流れてくる）
+  const obSpeed=unit*7*speedMul, obPeriod=unit*17;
+  const obOff=(anT*obSpeed)%obPeriod;
+  for(let wx=-obPeriod;wx<wCss+obPeriod;wx+=obPeriod){
+    const x=wx-obOff;
+    g.fillStyle=claude;
+    g.fillRect(x,groundY-unit*9,unit*4,unit*3);
+    g.strokeStyle=ink;g.lineWidth=Math.max(1,unit*0.25);
+    g.strokeRect(x,groundY-unit*9,unit*4,unit*3);
+    g.beginPath();g.moveTo(x+unit*2,groundY-unit*9);g.lineTo(x+unit*2,groundY-unit*6);g.stroke();
+
+    const px2=x+unit*9;
+    g.fillStyle=amber;
+    g.fillRect(px2,groundY-unit*6,unit*4,unit*6);
+    g.fillRect(px2-unit*0.5,groundY-unit*7,unit*5,unit*1.4);
+  }
+
+  // リマちゃん：画面固定、右へ進むが顔は反転したまま。胴体・脚は描かず、
+  // 画像そのものが弾む／跳ぶ／傾くことでアクションを表現する
+  const RUN_LEN=action==="dash"?0.14:0.22;
+  const stepPos=(anT/RUN_LEN)%2;
+  const st=stepPos-Math.floor(stepPos);
+
+  const headR=unit*6.4;
+  const cx=wCss*0.3;
+  let hop=0,lean=0;
+  if(action==="jump"){
+    hop=Math.sin(Math.PI*Math.min(1,actionT))*unit*11;
+  }else{
+    hop=Math.abs(Math.sin(Math.PI*st))*unit*3;
+  }
+  if(action==="dash")lean=unit*2;
+  const cy=groundY-headR*1.5-hop;
+
+  if(action==="dash"){
+    g.strokeStyle=amber;g.lineWidth=Math.max(1,unit*0.5);
+    for(let i=0;i<3;i++){
+      const ly=cy+headR*0.3+i*unit*2;
+      g.beginPath();g.moveTo(cx-headR*1.6-lean,ly);g.lineTo(cx-headR*0.6-lean,ly);g.stroke();
+    }
+  }
+
+  drawRimaHead(g,cx+lean,cy,headR,true,false);
 }
 function hexToRgb(hex){
   hex=hex.replace("#","");
